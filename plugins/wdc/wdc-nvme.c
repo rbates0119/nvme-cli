@@ -3783,6 +3783,17 @@ static int wdc_vs_telemetry_controller_option(int argc, char **argv, struct comm
 		goto out;
 	}
 
+	fprintf(stderr, "WDC: wdc_vs_telemetry_controller_option - disable = %d, enable = %d, status = %d\n", cfg.disable, cfg.enable, cfg.status);
+
+
+	/* allow only one option at a time */
+	if ((cfg.disable + cfg.enable + cfg.status) > 1) {
+
+		fprintf(stderr, "ERROR : WDC : Invalid option\n");
+		ret = -1;
+		goto out;
+	}
+
 	if (cfg.disable) {
 		ret = nvme_set_feature(fd, 0, WDC_VU_DISABLE_CNTLR_TELEMETRY_OPTION_FEATURE_ID, 1,
 				       0, 0, 0, buf, &result);
