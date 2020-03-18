@@ -353,6 +353,7 @@ enum {
 	NVME_CTRL_OACS_DIRECTIVES		= 1 << 5,
 	NVME_CTRL_OACS_DBBUF_SUPP		= 1 << 8,
 	NVME_CTRL_LPA_CMD_EFFECTS_LOG		= 1 << 1,
+	NVME_CTRL_LPA_PERSISTENT_EVENTS_LOG		= 1 << 4,
 	NVME_CTRL_CTRATT_128_ID			= 1 << 0,
 	NVME_CTRL_CTRATT_NON_OP_PSP		= 1 << 1,
 	NVME_CTRL_CTRATT_NVM_SETS		= 1 << 2,
@@ -560,6 +561,27 @@ struct nvme_endurance_group_log {
 	__u8	media_data_integrity_err[16];
 	__u8	num_err_info_log_entries[16];
 	__u8	rsvd160[352];
+};
+
+struct nvme_persistent_event_log {
+	__u8	log_identifier;
+	__u8	rsvd1[3];
+	__u32	total_num_events;
+	__u64	total_log_length;
+	__u8	log_revision;
+	__u8	rsvd2[1];
+	__u16	log_header_length;
+	__u64	time_stamp;
+	__u64	power_on_hours[2];
+	__u64	power_cycle_count;
+	__le16	vid;
+	__le16	ssvid;
+	char	sn[20];
+	char	mn[40];
+	char	subnqn[256];
+	__u8	rsvd3[108];
+	__u8    supported_event_bitmaps[32];
+
 };
 
 struct nvme_smart_log {
@@ -1024,6 +1046,7 @@ enum {
 	NVME_LOG_TELEMETRY_CTRL = 0x08,
 	NVME_LOG_ENDURANCE_GROUP = 0x09,
 	NVME_LOG_ANA		= 0x0c,
+	NVME_LOG_PERSISTENT = 0x0d,
 	NVME_LOG_DISC		= 0x70,
 	NVME_LOG_RESERVATION	= 0x80,
 	NVME_LOG_SANITIZE	= 0x81,

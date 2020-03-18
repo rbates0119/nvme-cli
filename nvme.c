@@ -519,8 +519,11 @@ static int get_persistent_log(int argc, char **argv, struct command *cmd, struct
 		"2h: Release Context\n";
 	const char *lpo = "log page offset specifies the location within the log page from where to start returning data";
 
+	struct nvme_persistent_event_log persistent_event_log;
+
 /*	enum nvme_print_flags flags; */
 	int err, fd;
+	struct nvme_id_ctrl ctrl;
 
 	struct config {
 		__u8 action;
@@ -542,11 +545,24 @@ static int get_persistent_log(int argc, char **argv, struct command *cmd, struct
 	if (fd < 0)
 		goto ret;
 
+	/* Determine if the controller supports the Persistent Event log by checking CTRATT */
+	err = nvme_identify_ctrl(fd, &ctrl);
+	if (err)
+		return err;
+
+	if (!(ctrl.lpa & NVME_CTRL_LPA_PERSISTENT_EVENTS_LOG)) {
+		fprintf(stderr, "ERROR: Persistent Event Log Page not supported by this controller\n");
+		return 0;
+	}
+
+
 	if (cfg.action > 2) {
 		fprintf(stderr, "invalid action:%d\n", cfg.action);
 		err = -EINVAL;
 		goto close_fd;
 	}
+
+	err = nvme_persistent_log(fd, cfg.action, cfg.lpo, &persistent_event_log);
 
 //	err = flags = validate_output_format(cfg.output_format);
 //	if (flags < 0)

@@ -106,7 +106,8 @@ int nvme_discovery_log(int fd, struct nvmf_disc_rsp_page_hdr *log, __u32 size);
 int nvme_sanitize_log(int fd, struct nvme_sanitize_log_page *sanitize_log);
 int nvme_endurance_log(int fd, __u16 group_id,
 		       struct nvme_endurance_group_log *endurance_log);
-
+int nvme_persistent_log(int fd, __u8 action,
+		       __u64 lpo, struct nvme_persistent_event_log *persistent_event_log);
 int nvme_feature(int fd, __u8 opcode, __u32 nsid, __u32 cdw10,
 		 __u32 cdw11, __u32 cdw12, __u32 data_len, void *data,
 		 __u32 *result);
