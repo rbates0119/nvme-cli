@@ -509,6 +509,56 @@ ret:
 	return nvme_status_to_errno(err, false);
 }
 
+static int get_persistent_log(int argc, char **argv, struct command *cmd, struct plugin *plugin)
+{
+	const char *desc = "Issue Get Log Page command for persistent event log page";
+	const char * action = "This field specifies the action taken by the persistent-log command.\n"\
+		"\n0h: Read Log Data - "\
+		"Return persistent event log page data starting at the address indicated by lpo\n"\
+		"1h: Establish Context and Read Log Data\n"\
+		"2h: Release Context\n";
+	const char *lpo = "log page offset specifies the location within the log page from where to start returning data";
+
+/*	enum nvme_print_flags flags; */
+	int err, fd;
+
+	struct config {
+		__u8 action;
+		__u64 lpo;
+	};
+
+	struct config cfg = {
+		.action = 0,
+		.lpo          = NVME_NO_LOG_LPO,
+	};
+
+	OPT_ARGS(opts) = {
+			OPT_BYTE("action", 'a', &cfg.action, action),
+			OPT_LONG("lpo",    'o', &cfg.lpo,    lpo),
+		OPT_END()
+	};
+
+	err = fd = parse_and_open(argc, argv, desc, opts);
+	if (fd < 0)
+		goto ret;
+
+	if (cfg.action > 2) {
+		fprintf(stderr, "invalid action:%d\n", cfg.action);
+		err = -EINVAL;
+		goto close_fd;
+	}
+
+//	err = flags = validate_output_format(cfg.output_format);
+//	if (flags < 0)
+//		goto close_fd;
+
+	close_fd:
+		close(fd);
+	ret:
+	return nvme_status_to_errno(err, false);
+
+}
+
 static int get_effects_log(int argc, char **argv, struct command *cmd, struct plugin *plugin)
 {
 	const char *desc = "Retrieve command effects log page and print the table.";
