@@ -512,10 +512,10 @@ int nvme_endurance_log(int fd, __u16 group_id, struct nvme_endurance_group_log *
 			sizeof(*endurance_log), endurance_log);
 }
 
-int nvme_persistent_log(int fd, __u8 action, __u64 lpo, struct nvme_persistent_event_log *persistent_event_log)
+int nvme_persistent_log(int fd, __u8 action, __u64 lpo, __u32 data_len, __u32 *result)
 {
 	return nvme_get_log13(fd, 0, NVME_LOG_PERSISTENT, 0, lpo, 0, 0,
-			sizeof(*persistent_event_log), persistent_event_log);
+			data_len, result);
 
 }
 

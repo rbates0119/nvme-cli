@@ -509,35 +509,47 @@ ret:
 	return nvme_status_to_errno(err, false);
 }
 
-static int get_persistent_log(int argc, char **argv, struct command *cmd, struct plugin *plugin)
+static int get_persistent_event_log(int argc, char **argv, struct command *cmd, struct plugin *plugin)
 {
 	const char *desc = "Issue Get Log Page command for persistent event log page";
-	const char * action = "This field specifies the action taken by the persistent-log command.\n"\
-		"\n0h: Read Log Data - "\
+	const char *action = "This field specifies the action taken by the persistent-event-log command."\
+		"\n0: Read Log Data - "\
 		"Return persistent event log page data starting at the address indicated by lpo\n"\
-		"1h: Establish Context and Read Log Data\n"\
-		"2h: Release Context\n";
+		"1: Establish Context and Read Log Data\n"\
+		"2: Release Context\n";
 	const char *lpo = "log page offset specifies the location within the log page from where to start returning data";
+	const char *display_header = "\n1: display contents of the persistent event log header";
 
-	struct nvme_persistent_event_log persistent_event_log;
+	struct nvme_persistent_event_log_header persistent_event_log_header;
+	struct nvme_persistent_event_log_event_header persistent_event_log_event_header;
 
-/*	enum nvme_print_flags flags; */
+	enum nvme_print_flags flags;
 	int err, fd;
 	struct nvme_id_ctrl ctrl;
+	__u32 *result;
+
+	fprintf(stderr, "get_persistent_log: size of nvme_persistent_event_log_header = %lu\n", sizeof(persistent_event_log_header));
+	fprintf(stderr, "get_persistent_log: size of nvme_persistent_event_log_event_header = %lu\n", sizeof(persistent_event_log_event_header));
 
 	struct config {
 		__u8 action;
 		__u64 lpo;
+		__u64 dh;
+		char *output_format;
 	};
 
 	struct config cfg = {
-		.action = 0,
-		.lpo          = NVME_NO_LOG_LPO,
+		.action			= 0,
+		.lpo			= NVME_NO_LOG_LPO,
+		.dh				= 0,
+		.output_format	= "normal",
 	};
 
 	OPT_ARGS(opts) = {
 			OPT_BYTE("action", 'a', &cfg.action, action),
-			OPT_LONG("lpo",    'o', &cfg.lpo,    lpo),
+			OPT_LONG("lpo",    'l', &cfg.lpo,    lpo),
+			OPT_LONG("display header",    'd', &cfg.dh,    display_header),
+			OPT_FMT("output-format", 'o', &cfg.output_format, output_format),
 		OPT_END()
 	};
 
@@ -545,16 +557,15 @@ static int get_persistent_log(int argc, char **argv, struct command *cmd, struct
 	if (fd < 0)
 		goto ret;
 
-	/* Determine if the controller supports the Persistent Event log by checking CTRATT */
+	/* Determine if the controller supports the Persistent Event log by checking Log Page Attributes */
 	err = nvme_identify_ctrl(fd, &ctrl);
 	if (err)
 		return err;
 
-	if (!(ctrl.lpa & NVME_CTRL_LPA_PERSISTENT_EVENTS_LOG)) {
+	if (!(ctrl.lpa & NVME_CTRL_PERSISTENT_EVENTS_LOG)) {
 		fprintf(stderr, "ERROR: Persistent Event Log Page not supported by this controller\n");
 		return 0;
 	}
-
 
 	if (cfg.action > 2) {
 		fprintf(stderr, "invalid action:%d\n", cfg.action);
@@ -562,11 +573,21 @@ static int get_persistent_log(int argc, char **argv, struct command *cmd, struct
 		goto close_fd;
 	}
 
-	err = nvme_persistent_log(fd, cfg.action, cfg.lpo, &persistent_event_log);
+	/* get the persistent event log header */
+	result = (__u32*)&persistent_event_log_header;
+	err = nvme_persistent_log(fd, cfg.action, cfg.lpo, sizeof(persistent_event_log_header), result);
 
-//	err = flags = validate_output_format(cfg.output_format);
-//	if (flags < 0)
-//		goto close_fd;
+	err = flags = validate_output_format(cfg.output_format);
+	if (flags < 0)
+		goto close_fd;
+
+	if (cfg.dh == 1) {
+		nvme_show_persistant_event_log_header(&persistent_event_log_header, flags);
+	} else if ((cfg.dh != 0)) {
+		fprintf(stderr, "invalid option:%d\n", cfg.dh);
+		err = -EINVAL;
+		goto close_fd;
+	}
 
 	close_fd:
 		close(fd);

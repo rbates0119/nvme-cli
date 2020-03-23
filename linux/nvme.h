@@ -353,7 +353,7 @@ enum {
 	NVME_CTRL_OACS_DIRECTIVES		= 1 << 5,
 	NVME_CTRL_OACS_DBBUF_SUPP		= 1 << 8,
 	NVME_CTRL_LPA_CMD_EFFECTS_LOG		= 1 << 1,
-	NVME_CTRL_LPA_PERSISTENT_EVENTS_LOG		= 1 << 4,
+	NVME_CTRL_PERSISTENT_EVENTS_LOG	= 1 << 4,
 	NVME_CTRL_CTRATT_128_ID			= 1 << 0,
 	NVME_CTRL_CTRATT_NON_OP_PSP		= 1 << 1,
 	NVME_CTRL_CTRATT_NVM_SETS		= 1 << 2,
@@ -563,25 +563,36 @@ struct nvme_endurance_group_log {
 	__u8	rsvd160[352];
 };
 
-struct nvme_persistent_event_log {
+struct nvme_persistent_event_log_header {
 	__u8	log_identifier;
 	__u8	rsvd1[3];
-	__u32	total_num_events;
-	__u64	total_log_length;
+	__u8	total_num_events[4];
+	__u8	total_log_length[8];
 	__u8	log_revision;
-	__u8	rsvd2[1];
-	__u16	log_header_length;
-	__u64	time_stamp;
-	__u64	power_on_hours[2];
-	__u64	power_cycle_count;
+	__u8	rsvd2;
+	__u8	log_header_length[2];
+	__u8	time_stamp[8];
+	__u8	power_on_hours[16];
+	__u8	power_cycle_count[8];
 	__le16	vid;
 	__le16	ssvid;
 	char	sn[20];
 	char	mn[40];
 	char	subnqn[256];
 	__u8	rsvd3[108];
-	__u8    supported_event_bitmaps[32];
+	__u16    supported_event_bitmaps[16];
+};
 
+struct nvme_persistent_event_log_event_header {
+	__u8	event_type;
+	__u8    event_type_revision;
+	__u8	event_header_length;
+	__u8	rsvd1;
+	__u8	controller_identifier[2];
+	__u8	event_time_stamp[8];
+	__u8	rsvd2[6];
+	__u8	vsil[2]; /* vendor specific information length */
+	__u8	event_length[2];
 };
 
 struct nvme_smart_log {
