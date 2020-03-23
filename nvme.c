@@ -534,7 +534,7 @@ static int get_persistent_event_log(int argc, char **argv, struct command *cmd, 
 	struct config {
 		__u8 action;
 		__u64 lpo;
-		__u64 dh;
+		__u8 dh;
 		char *output_format;
 	};
 
