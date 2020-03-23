@@ -4718,8 +4718,9 @@ static int wdc_reason_identifier(int argc, char **argv,
 		struct command *command, struct plugin *plugin)
 {
 	const char *desc = "Retrieve telemetry log reason identifier.";
-	const char *log_id = "Log ID to retrieve - host - 7 or controller - 8";
-	const char *fname = "File name to save raw binary identifier";
+	const char *log_id = "Log ID to retrieve - host - 7 (default) or controller - 8";
+	const char *fname = "File name to save raw binary identifier: Default -"\
+			"<device serial number>_error_reason_identifier_host_<date>_<time>.bin";
 	int fd;
 	int ret;
 	uint64_t capabilities = 0;
