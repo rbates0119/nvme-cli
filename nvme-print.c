@@ -3450,6 +3450,7 @@ static void nvme_show_supported_events(__le16 supported_events, __le16 vendor_sp
 	__u16 fc = (events & 0x4) >> 2;
 	__u16 smart = (events & 0x2) >> 1;
 
+	printf("\tSupported events bitmap:\n");
 	printf("  [222] : %#x\tVendor Specific Event %sSupported\n",
 		vse, vse ? "" : "Not ");
 	printf("  [13]  : %#x\tThermal Excursion Event %sSupported\n",
@@ -3487,25 +3488,26 @@ void nvme_show_persistent_event_log_header(struct nvme_persistent_event_log_head
 	__u32 *dword;
 	__u64 *qword;
 
-	printf("Log Identifier        : %#X\n", persistent_event_log_header->log_identifier);
+	printf("\n\tPersistent Event Log Header:\n");
+	printf("\tLog Identifier        : %#X\n", persistent_event_log_header->log_identifier);
 	dword = (__u32*)persistent_event_log_header->total_num_events;
-	printf("Total number of events: %u\n", *dword);
+	printf("\tTotal number of events: %u\n", *dword);
 	qword = (__u64*)persistent_event_log_header->total_log_length;
-	printf("Total log length      : %llu\n", *qword);
-	printf("Log revision          : %u\n", persistent_event_log_header->log_revision);
+	printf("\tTotal log length      : %llu\n", *qword);
+	printf("\tLog revision          : %u\n", persistent_event_log_header->log_revision);
 	word = (__u16*)persistent_event_log_header->log_header_length;
-	printf("Log header length     : %u\n", *word);
+	printf("\tLog header length     : %u\n", *word);
 	nvme_show_timestamp((struct nvme_timestamp *)persistent_event_log_header->time_stamp);
-	printf("power_on_hours        : %'.0Lf\n", int128_to_double(persistent_event_log_header->power_on_hours));
+	printf("\tpower_on_hours        : %'.0Lf\n", int128_to_double(persistent_event_log_header->power_on_hours));
 	qword = (__u64*)persistent_event_log_header->power_cycle_count;
-	printf("Power cycle count     : %llu\n", *qword);
-	printf("vid                   : %#X\n", le16_to_cpu(persistent_event_log_header->vid));
-	printf("ssvid                 : %#X\n", le16_to_cpu(persistent_event_log_header->ssvid));
-	printf("sn                    : %-.*s\n", (int)sizeof(persistent_event_log_header->sn),
+	printf("\tPower cycle count     : %llu\n", *qword);
+	printf("\tvid                   : %#X\n", le16_to_cpu(persistent_event_log_header->vid));
+	printf("\tssvid                 : %#X\n", le16_to_cpu(persistent_event_log_header->ssvid));
+	printf("\tsn                    : %-.*s\n", (int)sizeof(persistent_event_log_header->sn),
 			                                  persistent_event_log_header->sn);
-	printf("mn                    : %-.*s\n", (int)sizeof(persistent_event_log_header->mn),
+	printf("\tmn                    : %-.*s\n", (int)sizeof(persistent_event_log_header->mn),
 			                                  persistent_event_log_header->mn);
-	printf("Subnqn: %-.*s\n", (int)sizeof(persistent_event_log_header->subnqn), persistent_event_log_header->subnqn);
+	printf("\tSubnqn: %-.*s\n\n", (int)sizeof(persistent_event_log_header->subnqn), persistent_event_log_header->subnqn);
 	nvme_show_supported_events(persistent_event_log_header->supported_event_bitmaps[0],
 			persistent_event_log_header->supported_event_bitmaps[12]);
 }
@@ -3514,69 +3516,72 @@ void nvme_show_persistent_event_log_event_header(struct nvme_persistent_event_lo
 {
 	__u16 *word;
 
-	printf("Event type              : ");
+	printf("\n\tPersistent Event Log Event Header:\n");
+	printf("\n\tEvent type              : ");
 	nvme_show_events(persistent_event_log_event_header->event_type,
 					persistent_event_log_event_header->event_type);
-	printf("Event type revision     : %d\n", persistent_event_log_event_header->event_type_revision);
-	printf("Event header length     : %d\n", persistent_event_log_event_header->event_header_length);
+	printf("\n\tEvent type revision     : %d\n", persistent_event_log_event_header->event_type_revision);
+	printf("\tEvent header length     : %d\n", persistent_event_log_event_header->event_header_length);
 	word = (__u16*)persistent_event_log_event_header->controller_identifier;
-	printf("Controller ID           : %u\n", *word);
+	printf("\tController ID           : %u\n", *word);
 	word = (__u16*)persistent_event_log_event_header->vsil;
-	printf("Vendor specific length  : %u\n", *word);
+	printf("\tVendor specific length  : %u\n", *word);
 	word = (__u16*)persistent_event_log_event_header->event_length;
-	printf("Event length  : %u\n", *word);
+	printf("\tEvent data length       : %u\n", *word);
 	nvme_show_timestamp((struct nvme_timestamp *)persistent_event_log_event_header->event_time_stamp);
+	printf("\n");
 }
 
 void nvme_show_events(__u8 entry, __u8 event)
 {
 
-	printf("%d - ", entry);
+	if (entry > 0)
+		printf("%d - ", entry);
 
 	switch(event)
 	{
 
 	case 1:
-		printf("SMART / Health Log Snapshot Event\n");
+		printf("SMART / Health Log Snapshot Event ");
 		break;
 	case 2:
-		printf("Firmware Commit Event\n");
+		printf("Firmware Commit Event ");
 		break;
 	case 3:
-		printf("Timestamp Change Event\n");
+		printf("Timestamp Change Event ");
 		break;
 	case 4:
-		printf("Power-on or Reset\n");
+		printf("Power-on or Reset Event ");
 		break;
 	case 5:
-		printf("NVM Subsystem Hardware Error\n");
+		printf("NVM Subsystem Hardware Error Event ");
 		break;
 	case 6:
-		printf("Change Namespace\n");
+		printf("Change Namespace Event ");
 		break;
 	case 7:
-		printf("Format NVM Start\n");
+		printf("Format NVM Start Event ");
 		break;
 	case 8:
-		printf("Format NVM Completion\n");
+		printf("Format NVM Completion Event ");
 		break;
 	case 9:
-		printf("Sanitize Start\n");
+		printf("Sanitize Start Event ");
 		break;
 	case 10:
-		printf("Sanitize Completion\n");
+		printf("Sanitize Completion Event ");
 		break;
 	case 11:
-		printf("Set Feature\n");
+		printf("Set Feature Event ");
 		break;
 	case 12:
-		printf("Telemetry Log Created\n");
+		printf("Telemetry Log Created Event ");
 		break;
 	case 13:
-		printf("Thermal Excursion\n");
+		printf("Thermal Excursion Event ");
 		break;
 	default:
-		printf("Invalid event type\n");
+		printf("Invalid event type ");
 	}
 }
 
