@@ -3450,8 +3450,6 @@ static void nvme_show_supported_events(__le16 supported_events, __le16 vendor_sp
 	__u16 fc = (events & 0x4) >> 2;
 	__u16 smart = (events & 0x2) >> 1;
 
-	printf("Vendor Specific Event Supported = %#x\n", (vendor_specif_event >> 13));
-
 	printf("  [222] : %#x\tVendor Specific Event %sSupported\n",
 		vse, vse ? "" : "Not ");
 	printf("  [13]  : %#x\tThermal Excursion Event %sSupported\n",
@@ -3483,20 +3481,12 @@ static void nvme_show_supported_events(__le16 supported_events, __le16 vendor_sp
 	printf("\n");
 }
 
-void nvme_show_persistant_event_log_header(struct nvme_persistent_event_log_header *persistent_event_log_header,
-			     enum nvme_print_flags flags)
+void nvme_show_persistent_event_log_header(struct nvme_persistent_event_log_header *persistent_event_log_header)
 {
 	__u16 *word;
 	__u32 *dword;
 	__u64 *qword;
 
-	if (flags & BINARY)
-		return d_raw((unsigned char *)persistent_event_log_header,
-			sizeof(*persistent_event_log_header));
-
-/*	else if (flags & JSON)
-		return json_endurance_log(endurance_log, group_id);
-*/
 	printf("Log Identifier        : %#X\n", persistent_event_log_header->log_identifier);
 	dword = (__u32*)persistent_event_log_header->total_num_events;
 	printf("Total number of events: %u\n", *dword);
@@ -3518,6 +3508,76 @@ void nvme_show_persistant_event_log_header(struct nvme_persistent_event_log_head
 	printf("Subnqn: %-.*s\n", (int)sizeof(persistent_event_log_header->subnqn), persistent_event_log_header->subnqn);
 	nvme_show_supported_events(persistent_event_log_header->supported_event_bitmaps[0],
 			persistent_event_log_header->supported_event_bitmaps[12]);
+}
+
+void nvme_show_persistent_event_log_event_header(struct nvme_persistent_event_log_event_header *persistent_event_log_event_header)
+{
+	__u16 *word;
+
+	printf("Event type              : ");
+	nvme_show_events(persistent_event_log_event_header->event_type,
+					persistent_event_log_event_header->event_type);
+	printf("Event type revision     : %d\n", persistent_event_log_event_header->event_type_revision);
+	printf("Event header length     : %d\n", persistent_event_log_event_header->event_header_length);
+	word = (__u16*)persistent_event_log_event_header->controller_identifier;
+	printf("Controller ID           : %u\n", *word);
+	word = (__u16*)persistent_event_log_event_header->vsil;
+	printf("Vendor specific length  : %u\n", *word);
+	word = (__u16*)persistent_event_log_event_header->event_length;
+	printf("Event length  : %u\n", *word);
+	nvme_show_timestamp((struct nvme_timestamp *)persistent_event_log_event_header->event_time_stamp);
+}
+
+void nvme_show_events(__u8 entry, __u8 event)
+{
+
+	printf("%d - ", entry);
+
+	switch(event)
+	{
+
+	case 1:
+		printf("SMART / Health Log Snapshot Event\n");
+		break;
+	case 2:
+		printf("Firmware Commit Event\n");
+		break;
+	case 3:
+		printf("Timestamp Change Event\n");
+		break;
+	case 4:
+		printf("Power-on or Reset\n");
+		break;
+	case 5:
+		printf("NVM Subsystem Hardware Error\n");
+		break;
+	case 6:
+		printf("Change Namespace\n");
+		break;
+	case 7:
+		printf("Format NVM Start\n");
+		break;
+	case 8:
+		printf("Format NVM Completion\n");
+		break;
+	case 9:
+		printf("Sanitize Start\n");
+		break;
+	case 10:
+		printf("Sanitize Completion\n");
+		break;
+	case 11:
+		printf("Set Feature\n");
+		break;
+	case 12:
+		printf("Telemetry Log Created\n");
+		break;
+	case 13:
+		printf("Thermal Excursion\n");
+		break;
+	default:
+		printf("Invalid event type\n");
+	}
 }
 
 void nvme_show_smart_log(struct nvme_smart_log *smart, unsigned int nsid,

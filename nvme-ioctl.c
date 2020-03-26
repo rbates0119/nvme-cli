@@ -512,11 +512,48 @@ int nvme_endurance_log(int fd, __u16 group_id, struct nvme_endurance_group_log *
 			sizeof(*endurance_log), endurance_log);
 }
 
-int nvme_persistent_log(int fd, __u8 action, __u64 lpo, __u32 data_len, __u32 *result)
+int nvme_persistent_log(int fd, __u8 action, __u64 lpo, __u32 data_len, void *data)
 {
-	return nvme_get_log13(fd, 0, NVME_LOG_PERSISTENT, 0, lpo, 0, 0,
-			data_len, result);
+//	return nvme_get_log13(fd, 0, NVME_LOG_PERSISTENT, 0, lpo, 0, 0,
+//			data_len, result);
 
+	int err = 0, dfd;
+	int mode = S_IRUSR | S_IWUSR |S_IRGRP | S_IWGRP| S_IROTH;
+
+	if (action < 2) {
+
+		dfd = open("test.bin", 0, mode);
+		if (dfd < 0) {
+			perror("test.bin");
+			err = -EINVAL;
+			goto ret;
+		}
+
+		__off_t offset = lseek(dfd, lpo, SEEK_SET);
+
+		if (offset == -1) {
+			fprintf(stderr, "failed to seek to %llu, offset = %#X\n", lpo, (int)offset);
+			goto close_dfd;
+		}
+
+		err = read(dfd, (void *)data, data_len);
+		if (err < 0) {
+			err = -errno;
+			fprintf(stderr, "failed to read data buffer from input"
+					" file %s\n", strerror(errno));
+			goto close_dfd;
+		}
+	} else {
+		goto ret;
+		err = 0;
+	}
+
+	close_dfd:
+		close(dfd);
+
+	ret:
+
+	return err;
 }
 
 int nvme_smart_log(int fd, __u32 nsid, struct nvme_smart_log *smart_log)
