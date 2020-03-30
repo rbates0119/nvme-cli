@@ -1,0 +1,108 @@
+nvme-persistent-event-log(1)
+============================
+
+NAME
+----
+nvme-persistent-event-log - Send NVMe Persistent Event log page request, returns result and log
+
+SYNOPSIS
+--------
+[verse]
+'persistent-event-log' <device> [--action=<action> | -a <action>]
+			[--event-entry=<event entry> | -e <event entry>]
+			[--event-type=<event type> | -e <entry type>]
+			[--list events | -l]
+			[--display-header=<level> | -d <level>]
+			[--raw-binary | -b]
+			[--output-format=<fmt> | -o <fmt>]
+
+DESCRIPTION
+-----------
+Sends a request for the NVMe Persistent Event log data from an NVMe device and provides the returned data 
+based on options provided.
+
+The <device> parameter is mandatory and may be either the NVMe character
+device (ex: /dev/nvme0), or a namespace block device (ex: /dev/nvme0n1).
+
+On success, the returned persistent event log data may be returned in one of
+several ways depending on the parameters provided; the header data may parsed by
+the program and printed in a readable format, the raw buffer may be
+printed to stdout for another program to parse, or reported in json format (currently not supported).
+
+OPTIONS
+-------
+-a <action>::
+--action=<action>::
+	action:
+	
+	0: Return all persistent event log data or the event entry list, event entry or event type. If the controller 
+	does not have a persistent event log reporting context, then the controller shall fail the command with a status code 
+	of Command Sequence Error. 
+	
+	1: Establish context and read log data - After establishing a persistent event log reporting context the 
+	controller shall return persistent event log page data.
+	
+	2: Release contest - The controller shall release the persistent event log reporting context, if any. 
+	It is not an error if the controller does not have a persistenteventlog reporting context
+
+-e <event entry>::
+--event=<event entry>::
+	Returns the log entry at the location given by <event entry> which is the 1 based index into the list of 
+	events available (-l). If used with -t then return the nth event of this type. Must be zero if -a = 2
+
+-e <event typee>::
+--event=<event type>::
+	Returns all event entries given by <event type>. Must be zero if -a = 2
+	 
+-d <level>::
+--event=<level>::
+	0: No Header information displayed.
+	1: Display persistent event log header.
+	2: Display persistent event log event header.
+	3: Display all headers for selected events.
+
+-o <format>::
+--output-format=<format>::
+              Set the reporting format to 'normal', 'json', or
+              'binary'. Only one output format can be used at a time.
+
+EXAMPLES
+--------
+* Print the Persistent Event log page in a human readable binary format:
++
+------------
+# nvme persistent-event-log /dev/nvme0
+------------
++
+The above example will use action = 0 to get all persistent event log entries and 
+display in binary format. An error will be returned if a reporting context has not 
+been established.  If error then add -a 1 and run again.
+
+* Print the raw Persistent Event log to a binary file:
++
+------------
+# nvme persistent-event-log /dev/nvme0 -b > endurance_log.raw
+------------
+
+* List the Persistent Event log events in a human readable format:
++
+------------
+# nvme persistent-event-log /dev/nvme0 -l
+------------
++
+The above example will use action = 0 to get the Persistent Event log header to list all persistent event log entries and 
+display in human readable format.
+
+* Print a specific Persistent Event log event type in binary format:
++
+------------
+# nvme persistent-event-log /dev/nvme0 -t <event type>
+------------
++
+The above example will use action = 0 to get the Persistent Event event type selected and 
+display in binary format.
+
+
+NVME
+----
+Part of the nvme-user suite

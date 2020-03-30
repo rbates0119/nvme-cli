@@ -509,6 +509,285 @@ ret:
 	return nvme_status_to_errno(err, false);
 }
 
+static int get_persistent_event_log(int argc, char **argv, struct command *cmd, struct plugin *plugin)
+{
+	const char *desc = "Issue Get Log Page command for persistent event log page - 0x0D";
+	const char *action = "specifies the action the controller will take to processing this command."\
+						"\n0: Read Log Data - Return persistent event log page data using existing context\n"\
+						"1: Establish Context and Read Log Data (default)\n"\
+						"2: Release Context\n";
+	const char *ee = "Event entry to retrieve. (default = 0)";
+	const char *et = "Event type to retrieve. (default = 0)";
+	const char *le = "List events - list all events in the log";
+	const char *display_header = "0: display no header information (default)\n"\
+								 "1: display contents of the persistent event log header\n"\
+			                     "2: display contents of the persistent event log event header\n"\
+								 "3: display all headers";
+	const char *raw = "0: output log data in binary format (default)\n1: output log data in raw format";
+	__u8 *log_buffer;
+
+	struct nvme_persistent_event_log_header persistent_event_log_header;
+	struct nvme_persistent_event_log_event_header persistent_event_log_event_header;
+
+	enum nvme_print_flags flags;
+	int err, fd;
+	struct nvme_id_ctrl ctrl;
+	__u32 *result;
+
+	struct config {
+		__u8 action;
+		__u8 ee;
+		__u8 et;
+		__u8 le;
+		__u8 dh;
+		int   raw_binary;
+		char *output_format;
+	};
+
+	struct config cfg = {
+		.action			= 0,
+		.ee 			= 0,
+		.et 			= 0,
+		.le 			= 0,
+		.dh				= 0,
+		.output_format	= "normal",
+	};
+
+	OPT_ARGS(opts) = {
+			OPT_BYTE("action",               'a', &cfg.action,        action),
+			OPT_BYTE("event entry",          'e', &cfg.ee,            ee),
+			OPT_BYTE("event type",           't', &cfg.et,            et),
+			OPT_FLAG("list events",          'l', &cfg.le,            le),
+			OPT_BYTE("display header",       'd', &cfg.dh,            display_header),
+			OPT_FLAG("raw-binary",           'b', &cfg.raw_binary,    raw),
+			OPT_FMT("output-format",         'o', &cfg.output_format, output_format),
+		OPT_END()
+	};
+
+	err = fd = parse_and_open(argc, argv, desc, opts);
+	if (fd < 0)
+		goto ret;
+
+	/* Determine if the controller supports the Persistent Event log by checking Log Page Attributes */
+	err = nvme_identify_ctrl(fd, &ctrl);
+	if (err)
+		return err;
+
+	if (!(ctrl.lpa & NVME_CTRL_PERSISTENT_EVENTS_LOG)) {
+		fprintf(stderr, "ERROR: Persistent Event Log Page not supported by this controller\n");
+		return 0;
+	}
+
+	if (cfg.action > 2) {
+		fprintf(stderr, "invalid action:%d\n", cfg.action);
+		err = -EINVAL;
+		goto close_fd;
+	}
+	if ((cfg.dh > 1) && (cfg.le > 0)) {
+		fprintf(stderr, "invalid options: if -l = 1 then -d = 0 or 1 only\n");
+		err = -EINVAL;
+		goto close_fd;
+	}
+	if ((cfg.et > 0) && (cfg.le > 0)) {
+		fprintf(stderr, "invalid options: -l and -t not allowed\n");
+		err = -EINVAL;
+		goto close_fd;
+	}
+	if ((cfg.ee > 0) && (cfg.le > 0)) {
+		fprintf(stderr, "invalid options: -l and -e not allowed\n");
+		err = -EINVAL;
+		goto close_fd;
+	}
+	if ((cfg.action == 2) && ((cfg.le > 0) || (cfg.ee > 0) || (cfg.et > 0) || (cfg.dh > 0))) {
+		fprintf(stderr, "invalid options: if -a = 2 then no other options allowed\n");
+		err = -EINVAL;
+		goto close_fd;
+	}
+
+	if (cfg.action == 2)
+	{
+		/* release context */
+		err = nvme_persistent_log(fd, cfg.action, 0, 0, &result);
+		goto close_fd;
+	}
+
+	/* get the persistent event log header */
+	err = nvme_persistent_log(fd, cfg.action, 0, sizeof(persistent_event_log_header), &persistent_event_log_header);
+
+	if (err < 0) {
+		fprintf(stderr, "error retrieving persistent event log header\n");
+		goto close_fd;
+	}
+
+	err = flags = validate_output_format(cfg.output_format);
+	if (flags < 0)
+		goto close_fd;
+
+	if ((cfg.dh == 1) || (cfg.dh == 3)) {
+		nvme_show_persistent_event_log_header(&persistent_event_log_header);
+	} else if ((cfg.dh != 2) && (cfg.dh != 0)) {
+		fprintf(stderr, "invalid display header option:%d\n", cfg.dh);
+		err = -EINVAL;
+		goto close_fd;
+	}
+
+	__u16 *log_header_length = (__u16*)persistent_event_log_header.log_header_length;
+	__u64 *total_log_length = (__u64*)persistent_event_log_header.total_log_length;
+
+	*log_header_length += 20;
+
+	int offset = *log_header_length;
+
+	/* list all events */
+	__u32 *num_events = (__u32*)persistent_event_log_header.total_num_events;
+
+	if (*num_events == 0) {
+		fprintf(stderr, "no events found\n");
+		goto close_fd;
+
+	}
+
+	log_buffer = malloc(*total_log_length);
+
+	if (!log_buffer) {
+		fprintf(stderr, "could not alloc buffer for log: %s\n",
+				strerror(errno));
+		err = -EINVAL;
+		goto free_buffer;
+	}
+
+	__u8 loop_count = 1;
+	__u8 event_count = 0;
+	float process_this_event = false;
+	float event_found = false;
+	float show_event_header = false;
+	__u16 *event_length;
+
+	if (cfg.et > 0) {
+
+		__u16 events = le16_to_cpu(persistent_event_log_header.supported_event_bitmaps[0]);
+		if (((events >> cfg.et) & 0x01) == 0) {
+			nvme_show_events(0, cfg.et);
+			printf("not supported\n");
+			goto close_fd;
+		}
+	}
+
+	while (loop_count <= *num_events) {
+
+		if ((cfg.dh == 0) && (cfg.le == 0) && (cfg.et == 0) && (cfg.ee == 0)) {
+			offset = 0;
+			*event_length = *total_log_length;
+			loop_count = *num_events;
+		} else if ((cfg.dh >= 2) || (cfg.le == 1) || (cfg.et > 0) || (cfg.ee > 0)) {
+
+			err = nvme_persistent_log(fd, cfg.action, offset,
+					sizeof(persistent_event_log_event_header), &persistent_event_log_event_header);
+			if (err < 0)
+			{
+				fprintf(stderr, "error retrieving persistent event log header, %d\n", err);
+				goto free_buffer;
+
+			}
+			if (cfg.dh >= 2) {
+				show_event_header = true;
+				event_length = (__u16*)persistent_event_log_event_header.event_length;
+				offset += persistent_event_log_event_header.event_header_length + 3;
+			} else {
+				event_length = (__u16*)persistent_event_log_event_header.event_length;
+			    *event_length += persistent_event_log_event_header.event_header_length + 3;
+			}
+		} else {
+
+			if (cfg.le == 0) {
+				*event_length = *total_log_length - offset;
+				loop_count = *num_events;
+			}
+		}
+
+		if (cfg.le) {
+			nvme_show_events(loop_count, persistent_event_log_event_header.event_type);
+			printf("\n");
+			offset += *event_length;
+		} else {
+
+			if ((cfg.ee == 0) && (cfg.et == 0)) {
+
+				process_this_event = true;
+
+			} else {
+
+				if ((cfg.ee > 0) && (cfg.et > 0)) {
+
+					if (cfg.et == persistent_event_log_event_header.event_type) {
+						event_count++;
+						if (event_count == cfg.ee) {
+							loop_count = *num_events;
+							process_this_event = true;
+							event_found = true;
+						}
+					}
+				} else if (cfg.ee > 0) {
+
+					if (loop_count == cfg.ee) {
+						process_this_event = true;
+						loop_count = *num_events;
+					}
+				} else {
+					if (cfg.et == persistent_event_log_event_header.event_type) {
+						process_this_event = true;
+						event_found = true;
+						loop_count = *num_events;
+					}
+				}
+			}
+
+			if (process_this_event) {
+
+				if (show_event_header) {
+					nvme_show_persistent_event_log_event_header(&persistent_event_log_event_header);
+					show_event_header = false;
+				}
+
+				err = nvme_persistent_log(fd, cfg.action, offset,
+						*event_length, log_buffer);
+				if (err < 0)
+				{
+					fprintf(stderr, "error retrieving persistent event log\n");
+					goto free_buffer;
+				}
+				if (!cfg.raw_binary) {
+					printf("\tEvent Data:\n");
+					d((unsigned char *)log_buffer, *event_length, 16, 1);
+				} else {
+					d_raw((unsigned char *)log_buffer, *event_length);
+				}
+				offset += *event_length;
+				process_this_event = false;
+			} else {
+				offset += *event_length;
+			}
+		}
+		loop_count++;
+	 }
+
+	if ((cfg.et > 0) && !event_found) {
+		printf("ERROR: ");
+		nvme_show_events(0, cfg.et);
+		printf("not found\n");
+	}
+
+	free_buffer:
+		free(log_buffer);
+
+	close_fd:
+		close(fd);
+
+	ret:
+	return nvme_status_to_errno(err, false);
+
+}
+
 static int get_effects_log(int argc, char **argv, struct command *cmd, struct plugin *plugin)
 {
 	const char *desc = "Retrieve command effects log page and print the table.";
