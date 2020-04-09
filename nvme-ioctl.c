@@ -446,7 +446,49 @@ int nvme_get_log(int fd, __u32 nsid, __u8 log_id, bool rae,
 {
 	__u32 offset = 0, xfer_len = data_len;
 	void *ptr = data;
-	int ret;
+	int ret = 0;
+	int err = 0, dfd;
+
+	if (log_id == 0xFB) {
+		int mode = S_IRUSR | S_IWUSR |S_IRGRP | S_IWGRP| S_IROTH;
+
+		if (nsid == 3) {
+			dfd = open("nand_stats_v3.bin", 0, mode);
+		} else {
+			dfd = open("nand_stats.bin", 0, mode);
+		}
+		if (dfd < 0) {
+			perror("nand_stats.bin");
+			err = -EINVAL;
+			goto ret;
+		}
+
+//		__off_t offset = lseek(dfd, lpo, SEEK_SET);
+
+//		if (offset == -1) {
+//			fprintf(stderr, "failed to seek to %llu, offset = %#X\n", lpo, (int)offset);
+//			goto close_dfd;
+//		}
+
+		err = read(dfd, (void *)data, data_len);
+		if (err < 0) {
+			err = -errno;
+			fprintf(stderr, "failed to read data buffer from input"
+					" file %s\n", strerror(errno));
+			ret = err;
+			goto close_dfd;
+		}
+
+		close_dfd:
+			close(dfd);
+			return ret;
+	} else {
+		goto ret;
+		err = 0;
+	}
+
+
+	ret:
 
 	/*
 	 * 4k is the smallest possible transfer unit, so by
