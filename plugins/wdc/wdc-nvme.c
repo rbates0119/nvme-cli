@@ -707,7 +707,7 @@ struct __attribute__((__packed__)) wdc_nand_stats_V3 {
 	__u8        percent_free_blocks_user;
 	__le64      security_version_number;
 	__u8        percent_free_blocks_system;
-	__u8        trim_competions[25];
+	__u8        trim_completions[25];
 	__u8        back_pressure_guage;
 	__le64		soft_ecc_error_count;
 	__le64		refresh_count;
@@ -5143,7 +5143,7 @@ static void wdc_print_nand_stats_normal(__u16 version, void *data)
 				le16_to_cpu(nand_stats->log_page_version));
 		break;
 	case 3:
-		printf("  NAND Statistics :- \n");
+		printf("  NAND Statistics V3:- \n");
 		printf("  TLC Units Written				 %.0Lf\n",
 				int128_to_double(nand_stats_v3->nand_write_tlc));
 		printf("  SLC Units Written 				 %.0Lf\n",
@@ -5178,12 +5178,12 @@ static void wdc_print_nand_stats_normal(__u16 version, void *data)
 				le64_to_cpu(nand_stats_v3->security_version_number));
 		printf("  %% Free Blocks (System)			 %u\n",
 				nand_stats_v3->percent_free_blocks_system);
-		/*
-			TODO:  how to print/convert 25 byte array - __u8        trim_competions[25];
-			code below will get 16 bytes of the data
-		*/
-		printf("  Trim Completions				 %.0Lf\n",
-				int128_to_double(nand_stats_v3->trim_competions));
+		printf("  Data Set Management Commands			 %.0Lf\n",
+				int128_to_double(nand_stats_v3->trim_completions));
+		printf("  Estimate of Incomplete Trim Data		 %"PRIu64"\n",
+				le64_to_cpu(nand_stats_v3->trim_completions[16]));
+		printf("  %% of completed trim				 %u\n",
+				nand_stats_v3->trim_completions[24]);
 		printf("  Background Back-Pressure-Guage		 %u\n",
 				nand_stats_v3->back_pressure_guage);
 		printf("  Soft ECC Error Count				 %"PRIu64"\n",
@@ -5252,6 +5252,62 @@ static void wdc_print_nand_stats_json(__u16 version, void *data)
 				int128_to_double(nand_stats_v3->nand_write_tlc));
 		json_object_add_value_float(root, "NAND Writes SLC (Bytes)",
 				int128_to_double(nand_stats_v3->nand_write_slc));
+		json_object_add_value_uint(root, "Bad NAND Blocks Count",
+				le64_to_cpu(nand_stats_v3->bad_nand_block_count));
+		json_object_add_value_uint(root, "NAND XOR Recovery count",
+				le64_to_cpu(nand_stats_v3->xor_recovery_count));
+		json_object_add_value_uint(root, "UECC Read Error count",
+				le64_to_cpu(nand_stats_v3->uecc_read_error_count));
+		json_object_add_value_float(root, "SSD End to End correction counts",
+				int128_to_double(nand_stats_v3->ssd_correction_counts));
+		json_object_add_value_uint(root, "System data % life-used",
+				nand_stats_v3->percent_life_used);
+		json_object_add_value_uint(root, "User Data Erase Counts - SLC Min",
+				le64_to_cpu(nand_stats_v3->user_data_erase_counts[0]));
+		json_object_add_value_uint(root, "User Data Erase Counts - SLC Max",
+				le64_to_cpu(nand_stats_v3->user_data_erase_counts[1]));
+		json_object_add_value_uint(root, "User Data Erase Counts - TLC Min",
+				le64_to_cpu(nand_stats_v3->user_data_erase_counts[2]));
+		json_object_add_value_uint(root, "User Data Erase Counts - TLC Max",
+				le64_to_cpu(nand_stats_v3->user_data_erase_counts[3]));
+		json_object_add_value_uint(root, "Program Fail Count",
+				le64_to_cpu(nand_stats_v3->program_fail_count));
+		json_object_add_value_uint(root, "Erase Fail Count",
+				le64_to_cpu(nand_stats_v3->erase_fail_count));
+		json_object_add_value_uint(root, "PCIe Correctable Error Count",
+				le16_to_cpu(nand_stats_v3->correctable_error_count));
+		json_object_add_value_uint(root, "% Free Blocks (User)",
+				nand_stats_v3->percent_free_blocks_user);
+		json_object_add_value_uint(root, "Security Version Number",
+				le64_to_cpu(nand_stats_v3->security_version_number));
+		json_object_add_value_uint(root, "% Free Blocks (System)",
+				nand_stats_v3->percent_free_blocks_system);
+		json_object_add_value_float(root, "Data Set Management Commands",
+				int128_to_double(nand_stats_v3->trim_completions));
+		json_object_add_value_uint(root, "Estimate of Incomplete Trim Data",
+				le64_to_cpu(nand_stats_v3->trim_completions[16]));
+		json_object_add_value_uint(root, "%% of completed trim",
+				nand_stats_v3->trim_completions[24]);
+		json_object_add_value_uint(root, "Background Back-Pressure-Guage",
+				nand_stats_v3->back_pressure_guage);
+		json_object_add_value_uint(root, "Soft ECC Error Count",
+				le64_to_cpu(nand_stats_v3->soft_ecc_error_count));
+		json_object_add_value_uint(root, "Refresh Count",
+				le64_to_cpu(nand_stats_v3->refresh_count));
+		json_object_add_value_uint(root, "Bad System Nand Block Count",
+				le64_to_cpu(nand_stats_v3->bad_sys_nand_block_count));
+		json_object_add_value_float(root, "Endurance Estimate",
+				int128_to_double(nand_stats_v3->endurance_estimate));
+		json_object_add_value_uint(root, "Thermal Throttling Status",
+				nand_stats_v3->thermal_throttling_st_ct[0]);
+		json_object_add_value_uint(root, "Thermal Throttling Count",
+				nand_stats_v3->thermal_throttling_st_ct[1]);
+		json_object_add_value_uint(root, "Unaligned I/O",
+				le64_to_cpu(nand_stats_v3->unaligned_IO));
+		json_object_add_value_float(root, "Physical Media Units Read",
+				int128_to_double(nand_stats_v3->physical_media_units));
+		json_object_add_value_uint(root, "log page version",
+				le16_to_cpu(nand_stats_v3->log_page_version));
 
 		break;
 
