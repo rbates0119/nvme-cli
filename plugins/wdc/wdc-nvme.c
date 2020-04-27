@@ -227,6 +227,7 @@
 #define WDC_NVME_GET_DEV_MGMNT_LOG_PAGE_OPCODE		0xC2
 #define WDC_C2_LOG_BUF_LEN				0x1000
 #define WDC_C2_LOG_PAGES_SUPPORTED_ID			0x08
+#define WDC_C2_CUSTOMER_ID_ID					0x15
 #define WDC_C2_THERMAL_THROTTLE_STATUS_ID		0x18
 #define WDC_C2_ASSERT_DUMP_PRESENT_ID			0x19
 #define WDC_C2_USER_EOL_STATUS_ID			0x1A
@@ -247,7 +248,8 @@
 
 /* CA Log Page */
 #define WDC_NVME_GET_DEVICE_INFO_LOG_OPCODE		0xCA
-#define WDC_CA_LOG_BUF_LEN				0x80
+#define WDC_FB_CA_LOG_BUF_LEN				0x80
+#define WDC_BD_CA_LOG_BUF_LEN			0x90
 
 /* C0 EOL Status Log Page */
 #define WDC_NVME_GET_EOL_STATUS_LOG_OPCODE		0xC0
@@ -2973,7 +2975,7 @@ static int wdc_print_log(struct wdc_ssd_perf_stats *perf, int fmt)
 	return 0;
 }
 
-static void wdc_print_ca_log_normal(struct wdc_ssd_ca_perf_stats *perf)
+static void wdc_print_fb_ca_log_normal(struct wdc_ssd_ca_perf_stats *perf)
 {
 	uint64_t converted = 0;
 
@@ -3036,7 +3038,7 @@ static void wdc_print_ca_log_normal(struct wdc_ssd_ca_perf_stats *perf)
 			perf->percent_free_blocks);
 }
 
-static void wdc_print_ca_log_json(struct wdc_ssd_ca_perf_stats *perf)
+static void wdc_print_fb_ca_log_json(struct wdc_ssd_ca_perf_stats *perf)
 {
 	struct json_object *root;
 	uint64_t converted = 0;
@@ -3351,7 +3353,7 @@ static void wdc_print_fw_act_history_log_json(struct wdc_fw_act_history_log_entr
 	json_free_object(root);
 }
 
-static int wdc_print_ca_log(struct wdc_ssd_ca_perf_stats *perf, int fmt)
+static int wdc_print_fb_ca_log(struct wdc_ssd_ca_perf_stats *perf, int fmt)
 {
 	if (!perf) {
 		fprintf(stderr, "ERROR : WDC : Invalid buffer to read perf stats\n");
@@ -3359,10 +3361,10 @@ static int wdc_print_ca_log(struct wdc_ssd_ca_perf_stats *perf, int fmt)
 	}
 	switch (fmt) {
 	case NORMAL:
-		wdc_print_ca_log_normal(perf);
+		wdc_print_fb_ca_log_normal(perf);
 		break;
 	case JSON:
-		wdc_print_ca_log_json(perf);
+		wdc_print_fb_ca_log_json(perf);
 		break;
 	}
 	return 0;
@@ -3410,7 +3412,9 @@ static int wdc_get_ca_log_page(int fd, char *format)
 	int ret = 0;
 	int fmt = -1;
 	__u8 *data;
+	__u32 *cust_id;
 	struct wdc_ssd_ca_perf_stats *perf;
+	uint32_t read_device_id, read_vendor_id;
 
 	if (!wdc_check_device(fd))
 		return -1;
@@ -3426,21 +3430,44 @@ static int wdc_get_ca_log_page(int fd, char *format)
 		return -1;
 	}
 
-	if ((data = (__u8*) malloc(sizeof (__u8) * WDC_CA_LOG_BUF_LEN)) == NULL) {
+	if (!get_dev_mgment_cbs_data(fd, WDC_C2_CUSTOMER_ID_ID, (void*)&data)) {
+		fprintf(stderr, "%s: ERROR : WDC : 0xC2 Log Page entry ID 0x%x not found\n", __func__, WDC_C2_CUSTOMER_ID_ID);
+		return -1;
+	}
+
+	cust_id = (__u32*)data;
+
+	ret = wdc_get_pci_ids(&read_device_id, &read_vendor_id);
+
+	switch (read_device_id) {
+	case WDC_NVME_SN200_DEV_ID:
+		if (cust_id == 0) {
+
+		}
+
+		break;
+	case WDC_NVME_SN640_DEV_ID:
+	case WDC_NVME_SN640_DEV_ID_1:
+	case WDC_NVME_SN640_DEV_ID_2:
+		break;
+	}
+
+	if ((data = (__u8*) malloc(sizeof (__u8) * WDC_FB_CA_LOG_BUF_LEN)) == NULL) {
 		fprintf(stderr, "ERROR : WDC : malloc : %s\n", strerror(errno));
 		return -1;
 	}
-	memset(data, 0, sizeof (__u8) * WDC_CA_LOG_BUF_LEN);
+
+	memset(data, 0, sizeof (__u8) * WDC_FB_CA_LOG_BUF_LEN);
 
 	ret = nvme_get_log(fd, 0xFFFFFFFF, WDC_NVME_GET_DEVICE_INFO_LOG_OPCODE,
-			   false, WDC_CA_LOG_BUF_LEN, data);
+			   false, WDC_FB_CA_LOG_BUF_LEN, data);
 	if (strcmp(format, "json"))
 		fprintf(stderr, "NVMe Status:%s(%x)\n", nvme_status_to_string(ret), ret);
 
 	if (ret == 0) {
 		/* parse the data */
 		perf = (struct wdc_ssd_ca_perf_stats *)(data);
-		ret = wdc_print_ca_log(perf, fmt);
+		ret = wdc_print_fb_ca_log(perf, fmt);
 	} else {
 		fprintf(stderr, "ERROR : WDC : Unable to read CA Log Page data\n");
 		ret = -1;
