@@ -136,7 +136,7 @@ static void *nvme_alloc(size_t len, bool *huge)
 	return __nvme_alloc(len, huge);
 }
 #endif
-/*
+
 static int open_dev(char *dev)
 {
 	int err, fd;
@@ -159,7 +159,7 @@ perror:
 	perror(dev);
 	return err;
 }
-*/
+
 static int check_arg_dev(int argc, char **argv)
 {
 	if (optind >= argc) {
@@ -178,7 +178,7 @@ static int get_dev(int argc, char **argv)
 	if (ret)
 		return ret;
 
-	return 0; //open_dev(argv[optind]);
+	return open_dev(argv[optind]);
 }
 
 int parse_and_open(int argc, char **argv, const char *desc,
