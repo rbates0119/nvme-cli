@@ -35,6 +35,9 @@ void nvme_show_changed_ns_list_log(struct nvme_changed_ns_list_log *log,
 	const char *devname, enum nvme_print_flags flags);
 void nvme_show_endurance_log(struct nvme_endurance_group_log *endurance_log,
 	__u16 group_id, const char *devname, enum nvme_print_flags flags);
+void nvme_show_persistent_event_log_header(struct nvme_persistent_event_log_header *persistent_event_log_header);
+void nvme_show_persistent_event_log_event_header(struct nvme_persistent_event_log_event_header *persistent_event_log_event_header);
+void nvme_show_events(__u8 entry, __u8 event);
 void nvme_show_sanitize_log(struct nvme_sanitize_log_page *sanitize,
 	const char *devname, enum nvme_print_flags flags);
 void nvme_show_ctrl_registers(void *bar, bool fabrics, enum nvme_print_flags flags);

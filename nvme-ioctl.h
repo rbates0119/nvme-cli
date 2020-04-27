@@ -87,6 +87,8 @@ int nvme_identify_secondary_ctrl_list(int fd, __u32 nsid, __u16 cntid, void *dat
 int nvme_identify_ns_granularity(int fd, void *data);
 int nvme_get_log(int fd, __u32 nsid, __u8 log_id, bool rae,
 		 __u32 data_len, void *data);
+int nvme_get_log_from_uuid(int fd, __u32 nsid, __u8 log_id, bool rae, __u8 uuid_ix,
+		 __u32 data_len, void *data);
 int nvme_get_log14(int fd, __u32 nsid, __u8 log_id, __u8 lsp, __u64 lpo,
 		   __u16 group_id, bool rae, __u8 uuid_ix,
 		   __u32 data_len, void *data);
@@ -106,7 +108,7 @@ int nvme_discovery_log(int fd, struct nvmf_disc_rsp_page_hdr *log, __u32 size);
 int nvme_sanitize_log(int fd, struct nvme_sanitize_log_page *sanitize_log);
 int nvme_endurance_log(int fd, __u16 group_id,
 		       struct nvme_endurance_group_log *endurance_log);
-
+int nvme_persistent_log(int fd, __u8 action, __u64 lpo, __u32 data_len, void *data);
 int nvme_feature(int fd, __u8 opcode, __u32 nsid, __u32 cdw10,
 		 __u32 cdw11, __u32 cdw12, __u32 data_len, void *data,
 		 __u32 *result);

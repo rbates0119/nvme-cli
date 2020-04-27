@@ -446,7 +446,49 @@ int nvme_get_log(int fd, __u32 nsid, __u8 log_id, bool rae,
 {
 	__u32 offset = 0, xfer_len = data_len;
 	void *ptr = data;
-	int ret;
+	int ret = 0;
+	int err = 0, dfd;
+
+	if (log_id == 0xFB) {
+		int mode = S_IRUSR | S_IWUSR |S_IRGRP | S_IWGRP| S_IROTH;
+
+		if (nsid == 3) {
+			dfd = open("nand_stats_v3.bin", 0, mode);
+		} else {
+			dfd = open("nand_stats.bin", 0, mode);
+		}
+		if (dfd < 0) {
+			perror("nand_stats.bin");
+			err = -EINVAL;
+			goto ret;
+		}
+
+//		__off_t offset = lseek(dfd, lpo, SEEK_SET);
+
+//		if (offset == -1) {
+//			fprintf(stderr, "failed to seek to %llu, offset = %#X\n", lpo, (int)offset);
+//			goto close_dfd;
+//		}
+
+		err = read(dfd, (void *)data, data_len);
+		if (err < 0) {
+			err = -errno;
+			fprintf(stderr, "failed to read data buffer from input"
+					" file %s\n", strerror(errno));
+			ret = err;
+			goto close_dfd;
+		}
+
+		close_dfd:
+			close(dfd);
+			return ret;
+	} else {
+		goto ret;
+		err = 0;
+	}
+
+
+	ret:
 
 	/*
 	 * 4k is the smallest possible transfer unit, so by
@@ -460,6 +502,36 @@ int nvme_get_log(int fd, __u32 nsid, __u8 log_id, bool rae,
 
 		ret = nvme_get_log13(fd, nsid, log_id, NVME_NO_LOG_LSP,
 				     offset, 0, rae, xfer_len, ptr);
+		if (ret)
+			return ret;
+
+		offset += xfer_len;
+		ptr += xfer_len;
+	} while (offset < data_len);
+
+	return 0;
+}
+
+int nvme_get_log_from_uuid(int fd, __u32 nsid, __u8 log_id, bool rae, __u8 uuid_ix,
+		 __u32 data_len, void *data)
+{
+	__u32 offset = 0, xfer_len = data_len;
+	int ret;
+	void *ptr = data;
+
+	/*
+	 * 4k is the smallest possible transfer unit, so by
+	 * restricting ourselves for 4k transfers we avoid having
+	 * to check the MDTS value of the controller.
+	 */
+	do {
+		xfer_len = data_len - offset;
+		if (xfer_len > 4096)
+			xfer_len = 4096;
+
+		ret = nvme_get_log14(fd, nsid, log_id, NVME_NO_LOG_LSP,
+				     offset, 0, rae, uuid_ix, xfer_len, ptr);
+
 		if (ret)
 			return ret;
 
@@ -510,6 +582,50 @@ int nvme_endurance_log(int fd, __u16 group_id, struct nvme_endurance_group_log *
 {
 	return nvme_get_log13(fd, 0, NVME_LOG_ENDURANCE_GROUP, 0, 0, group_id, 0,
 			sizeof(*endurance_log), endurance_log);
+}
+
+int nvme_persistent_log(int fd, __u8 action, __u64 lpo, __u32 data_len, void *data)
+{
+//	return nvme_get_log13(fd, 0, NVME_LOG_PERSISTENT, 0, lpo, 0, 0,
+//			data_len, result);
+
+	int err = 0, dfd;
+	int mode = S_IRUSR | S_IWUSR |S_IRGRP | S_IWGRP| S_IROTH;
+
+	if (action < 2) {
+
+		dfd = open("test.bin", 0, mode);
+		if (dfd < 0) {
+			perror("test.bin");
+			err = -EINVAL;
+			goto ret;
+		}
+
+		__off_t offset = lseek(dfd, lpo, SEEK_SET);
+
+		if (offset == -1) {
+			fprintf(stderr, "failed to seek to %llu, offset = %#X\n", lpo, (int)offset);
+			goto close_dfd;
+		}
+
+		err = read(dfd, (void *)data, data_len);
+		if (err < 0) {
+			err = -errno;
+			fprintf(stderr, "failed to read data buffer from input"
+					" file %s\n", strerror(errno));
+			goto close_dfd;
+		}
+	} else {
+		goto ret;
+		err = 0;
+	}
+
+	close_dfd:
+		close(dfd);
+
+	ret:
+
+	return err;
 }
 
 int nvme_smart_log(int fd, __u32 nsid, struct nvme_smart_log *smart_log)

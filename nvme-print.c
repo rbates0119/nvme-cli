@@ -3409,6 +3409,182 @@ void nvme_show_endurance_log(struct nvme_endurance_group_log *endurance_log,
 		int128_to_double(endurance_log->num_err_info_log_entries));
 }
 
+static void nvme_show_timestamp(struct nvme_timestamp *ts)
+{
+	struct tm *tm;
+	char buffer[32];
+	time_t timestamp = int48_to_long(ts->timestamp) / 1000;
+
+	tm = localtime(&timestamp);
+	strftime(buffer, sizeof(buffer), "%c %Z", tm);
+
+	printf("\tThe timestamp is : %"PRIu64" (%s)\n",
+		int48_to_long(ts->timestamp), buffer);
+	printf("\t%s\n", (ts->attr & 2) ?
+		"The Timestamp field was initialized with a "\
+			"Timestamp value using a Set Features command." :
+		"The Timestamp field was initialized "\
+			"to ‘0’ by a Controller Level Reset.");
+	printf("\t%s\n", (ts->attr & 1) ?
+		"The controller may have stopped counting during vendor specific "\
+			"intervals after the Timestamp value was initialized" :
+		"The controller counted time in milliseconds "\
+			"continuously since the Timestamp value was initialized.");
+}
+
+static void nvme_show_supported_events(__le16 supported_events, __le16 vendor_specif_event)
+{
+	__u16 vse = le16_to_cpu(vendor_specif_event & 0x2000) >> 13;
+	__u16 events = le16_to_cpu(supported_events);
+	__u16 te = (events & 0x2000) >> 13;
+	__u16 tlc = (events & 0x1000) >> 12;
+	__u16 sf = (events & 0x800) >> 11;
+	__u16 sc = (events & 0x400) >> 10;
+	__u16 ss = (events & 0x200) >> 9;
+	__u16 fnc = (events & 0x100) >> 8;
+	__u16 fns = (events & 0x80) >> 7;
+	__u16 cn = (events & 0x40) >> 6;
+	__u16 nvms = (events & 0x20) >> 5;
+	__u16 por = (events & 0x10) >> 4;
+	__u16 tc = (events & 0x8) >> 3;
+	__u16 fc = (events & 0x4) >> 2;
+	__u16 smart = (events & 0x2) >> 1;
+
+	printf("\tSupported events bitmap:\n");
+	printf("  [222] : %#x\tVendor Specific Event %sSupported\n",
+		vse, vse ? "" : "Not ");
+	printf("  [13]  : %#x\tThermal Excursion Event %sSupported\n",
+		te, te ? "" : "Not ");
+	printf("  [12]  : %#x\tTelemetry Log Create Event %sSupported\n",
+		tlc, tlc ? "" : "Not ");
+	printf("  [11]  : %#x\tSet Feature Event %sSupported\n",
+		sf, sf ? "" : "Not ");
+	printf("  [10]  : %#x\tSanitize Completion Event %sSupported\n",
+		sc, sc ? "" : "Not ");
+	printf("  [9]   : %#x\tSanitize Start Event %sSupported\n",
+		ss, ss ? "" : "Not ");
+	printf("  [8]   : %#x\tFormat NVM Completion Event %sSupported\n",
+		fnc, fnc ? "" : "Not ");
+	printf("  [7]   : %#x\tFormat NVM Start Event %sSupported\n",
+		fns, fns ? "" : "Not ");
+	printf("  [6]   : %#x\tChange Namespace Event %sSupported\n",
+		cn, cn ? "" : "Not ");
+	printf("  [5]   : %#x\tNVM Subsystem Hardware Error Event %sSupported\n",
+		nvms, nvms ? "" : "Not ");
+	printf("  [4]   : %#x\tPower-on or Reset Event %sSupported\n",
+		por, por ? "" : "Not ");
+	printf("  [3]   : %#x\tTimestamp Change Event %sSupported\n",
+		tc, tc ? "" : "Not ");
+	printf("  [2]   : %#x\tFirmware Commit Event %sSupported\n",
+		fc, fc ? "" : "Not ");
+	printf("  [1]   : %#x\tSMART / Health Log Snapshot Event %sSupported\n",
+		smart, smart ? "" : "Not ");
+	printf("\n");
+}
+
+void nvme_show_persistent_event_log_header(struct nvme_persistent_event_log_header *persistent_event_log_header)
+{
+	__u16 *word;
+	__u32 *dword;
+	__u64 *qword;
+
+	printf("\n\tPersistent Event Log Header:\n");
+	printf("\tLog Identifier        : %#X\n", persistent_event_log_header->log_identifier);
+	dword = (__u32*)persistent_event_log_header->total_num_events;
+	printf("\tTotal number of events: %u\n", *dword);
+	qword = (__u64*)persistent_event_log_header->total_log_length;
+	printf("\tTotal log length      : %llu\n", *qword);
+	printf("\tLog revision          : %u\n", persistent_event_log_header->log_revision);
+	word = (__u16*)persistent_event_log_header->log_header_length;
+	printf("\tLog header length     : %u\n", *word);
+	nvme_show_timestamp((struct nvme_timestamp *)persistent_event_log_header->time_stamp);
+	printf("\tpower_on_hours        : %'.0Lf\n", int128_to_double(persistent_event_log_header->power_on_hours));
+	qword = (__u64*)persistent_event_log_header->power_cycle_count;
+	printf("\tPower cycle count     : %llu\n", *qword);
+	printf("\tvid                   : %#X\n", le16_to_cpu(persistent_event_log_header->vid));
+	printf("\tssvid                 : %#X\n", le16_to_cpu(persistent_event_log_header->ssvid));
+	printf("\tsn                    : %-.*s\n", (int)sizeof(persistent_event_log_header->sn),
+			                                  persistent_event_log_header->sn);
+	printf("\tmn                    : %-.*s\n", (int)sizeof(persistent_event_log_header->mn),
+			                                  persistent_event_log_header->mn);
+	printf("\tSubnqn: %-.*s\n\n", (int)sizeof(persistent_event_log_header->subnqn), persistent_event_log_header->subnqn);
+	nvme_show_supported_events(persistent_event_log_header->supported_event_bitmaps[0],
+			persistent_event_log_header->supported_event_bitmaps[12]);
+}
+
+void nvme_show_persistent_event_log_event_header(struct nvme_persistent_event_log_event_header *persistent_event_log_event_header)
+{
+	__u16 *word;
+
+	printf("\n\tPersistent Event Log Event Header:\n");
+	printf("\n\tEvent type              : ");
+	nvme_show_events(persistent_event_log_event_header->event_type,
+					persistent_event_log_event_header->event_type);
+	printf("\n\tEvent type revision     : %d\n", persistent_event_log_event_header->event_type_revision);
+	printf("\tEvent header length     : %d\n", persistent_event_log_event_header->event_header_length);
+	word = (__u16*)persistent_event_log_event_header->controller_identifier;
+	printf("\tController ID           : %u\n", *word);
+	word = (__u16*)persistent_event_log_event_header->vsil;
+	printf("\tVendor specific length  : %u\n", *word);
+	word = (__u16*)persistent_event_log_event_header->event_length;
+	printf("\tEvent data length       : %u\n", *word);
+	nvme_show_timestamp((struct nvme_timestamp *)persistent_event_log_event_header->event_time_stamp);
+	printf("\n");
+}
+
+void nvme_show_events(__u8 entry, __u8 event)
+{
+
+	if (entry > 0)
+		printf("%d - ", entry);
+
+	switch(event)
+	{
+
+	case 1:
+		printf("SMART / Health Log Snapshot Event ");
+		break;
+	case 2:
+		printf("Firmware Commit Event ");
+		break;
+	case 3:
+		printf("Timestamp Change Event ");
+		break;
+	case 4:
+		printf("Power-on or Reset Event ");
+		break;
+	case 5:
+		printf("NVM Subsystem Hardware Error Event ");
+		break;
+	case 6:
+		printf("Change Namespace Event ");
+		break;
+	case 7:
+		printf("Format NVM Start Event ");
+		break;
+	case 8:
+		printf("Format NVM Completion Event ");
+		break;
+	case 9:
+		printf("Sanitize Start Event ");
+		break;
+	case 10:
+		printf("Sanitize Completion Event ");
+		break;
+	case 11:
+		printf("Set Feature Event ");
+		break;
+	case 12:
+		printf("Telemetry Log Created Event ");
+		break;
+	case 13:
+		printf("Thermal Excursion Event ");
+		break;
+	default:
+		printf("Invalid event type ");
+	}
+}
+
 void nvme_show_smart_log(struct nvme_smart_log *smart, unsigned int nsid,
 			 const char *devname, enum nvme_print_flags flags)
 {
@@ -4049,29 +4225,6 @@ static void nvme_show_auto_pst(struct nvme_auto_pst *apst)
 			(apst[i].data & 0x000000f8) >> 3);
 		printf("\t.................\n");
 	}
-}
-
-static void nvme_show_timestamp(struct nvme_timestamp *ts)
-{
-	struct tm *tm;
-	char buffer[32];
-	time_t timestamp = int48_to_long(ts->timestamp) / 1000;
-
-	tm = localtime(&timestamp);
-	strftime(buffer, sizeof(buffer), "%c %Z", tm);
-
-	printf("\tThe timestamp is : %"PRIu64" (%s)\n",
-		int48_to_long(ts->timestamp), buffer);
-	printf("\t%s\n", (ts->attr & 2) ?
-		"The Timestamp field was initialized with a "\
-			"Timestamp value using a Set Features command." :
-		"The Timestamp field was initialized "\
-			"to ‘0’ by a Controller Level Reset.");
-	printf("\t%s\n", (ts->attr & 1) ?
-		"The controller may have stopped counting during vendor specific "\
-			"intervals after the Timestamp value was initialized" :
-		"The controller counted time in milliseconds "\
-			"continuously since the Timestamp value was initialized.");
 }
 
 static void nvme_show_host_mem_buffer(struct nvme_host_mem_buffer *hmb)
