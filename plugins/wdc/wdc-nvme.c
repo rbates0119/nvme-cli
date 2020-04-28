@@ -5542,6 +5542,7 @@ static int wdc_do_vs_nand_stats(int fd, __u8 version, char *format)
 	int ret;
 	int fmt = -1;
 	uint8_t *output = NULL;
+	__u16 version = 0;
 
 	if ((output = (uint8_t*)calloc(WDC_NVME_NAND_STATS_SIZE, sizeof(uint8_t))) == NULL) {
 		fprintf(stderr, "ERROR : WDC : calloc : %s\n", strerror(errno));
@@ -5584,7 +5585,6 @@ static int wdc_vs_nand_stats(int argc, char **argv, struct command *command,
 		struct plugin *plugin)
 {
 	const char *desc = "Retrieve NAND statistics.";
-	char *version = "Data retrieval transfer size.";
 
 	int fd;
 	int ret = 0;
