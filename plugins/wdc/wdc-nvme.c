@@ -121,6 +121,12 @@
 #define SN730_GET_EXTEND_LOG_SUBOPCODE			0x00040009
 #define SN730_LOG_CHUNK_SIZE				0x1000
 
+/* Customer ID's */
+#define WDC_CUSTOMER_ID_GENERIC				0x0001
+#define WDC_CUSTOMER_ID_AMAZON				0x1002
+#define WDC_CUSTOMER_ID_MICROSOFT			0x1004
+#define WDC_CUSTOMER_ID_FACEBOOK			0x1005
+
 /* Drive Resize */
 #define WDC_NVME_DRIVE_RESIZE_OPCODE			0xCC
 #define WDC_NVME_DRIVE_RESIZE_CMD			0x03
@@ -248,8 +254,8 @@
 
 /* CA Log Page */
 #define WDC_NVME_GET_DEVICE_INFO_LOG_OPCODE		0xCA
-#define WDC_FB_CA_LOG_BUF_LEN				0x80
-#define WDC_BD_CA_LOG_BUF_LEN			0x90
+#define WDC_FB_CA_LOG_BUF_LEN					0x80
+#define WDC_BD_CA_LOG_BUF_LEN					0x9C
 
 /* C0 EOL Status Log Page */
 #define WDC_NVME_GET_EOL_STATUS_LOG_OPCODE		0xC0
@@ -641,6 +647,14 @@ struct wdc_c2_log_subpage_header {
 struct wdc_c2_cbs_data {
 	__le32	length;
 	__u8	data[];
+};
+
+struct wdc_bd_ca_log_format {
+	__u8	field_id;
+	__u8	reserved1[2];
+	__u8	normalized_value;
+	__u8	reserved2;
+	__u8	raw_value[7];
 };
 
 struct __attribute__((__packed__)) wdc_ssd_ca_perf_stats {
@@ -1084,44 +1098,42 @@ static int wdc_create_log_file(char *file, __u8 *drive_log_data,
 	return 0;
 }
 
-static const uint8_t zero_uuid[16] = { 0 };
-
-bool NVMeGetDevMngLogEntry(
-    __u32 LogLength,
-    __u32 EntryId,
-    PADMIN_VUC_DEV_MNG_LOG_COMMON_HDR pLogHdr,
-    PADMIN_VUC_DEV_MNG_LOG_ENTRY *ppFoundLogEntry
+bool wdc_get_dev_mng_log_entry(
+    __u32 log_length,
+    __u32 entry_id,
+    struct wdc_c2_log_page_header* p_log_hdr,
+    struct wdc_c2_log_subpage_header **p_p_found_log_entry
 )
 {
-    __u32 remainingLen = 0;
-    __u32 logEntryHdrSize = sizeof(ADMIN_VUC_DEV_MNG_LOG_ENTRY) - 1;
-    __u32 logEntrySize = 0;
+    __u32 remaining_len = 0;
+    __u32 log_entry_hdr_size = sizeof(struct wdc_c2_log_subpage_header) - 1;
+    __u32 log_entry_size = 0;
     __u32 size = 0;
-    bool validLog;
-    __u32 currentDataOffset = 0;
-    PADMIN_VUC_DEV_MNG_LOG_ENTRY pNextLogEntry = NULL;
+    bool valid_log;
+    __u32 current_data_offset = 0;
+    struct wdc_c2_log_subpage_header *p_next_log_entry = NULL;
 
-    if (ppFoundLogEntry == NULL) {
-    	fprintf(stderr, "ERROR : WDC - NVMeGetDevMngLogEntry: No ppLogEntry pointer.\n");
+    if (*p_p_found_log_entry == NULL) {
+    	fprintf(stderr, "ERROR : WDC - wdc_get_dev_mng_log_entry: No ppLogEntry pointer.\n");
         return false;
     }
 
-    *ppFoundLogEntry = NULL;
+    *p_p_found_log_entry = NULL;
 
     // Ensure log data is large enough for common header
-    if (LogLength < sizeof(ADMIN_VUC_DEV_MNG_LOG_COMMON_HDR)) {
-    	fprintf(stderr, "ERROR : WDC - NVMeGetDevMngLogEntry: \
+    if (log_length < sizeof(struct wdc_c2_log_page_header)) {
+    	fprintf(stderr, "ERROR : WDC - wdc_get_dev_mng_log_entry: \
     			Buffer is not large enough for the common header. BufSize: 0x%x  HdrSize: 0x%lx\n",
-                LogLength, sizeof(ADMIN_VUC_DEV_MNG_LOG_COMMON_HDR));
+                log_length, sizeof(struct wdc_c2_log_page_header));
         return false;
     }
 
     // Get pointer to first log Entry
-    size = sizeof(ADMIN_VUC_DEV_MNG_LOG_COMMON_HDR);
-    currentDataOffset = size;
-    pNextLogEntry = (PADMIN_VUC_DEV_MNG_LOG_ENTRY)((__u8*)pLogHdr + currentDataOffset);
-    remainingLen = LogLength - size;
-    validLog = false;
+    size = sizeof(struct wdc_c2_log_page_header);
+    current_data_offset = size;
+    p_next_log_entry = (struct wdc_c2_log_subpage_header *)((__u8*)p_log_hdr + current_data_offset);
+    remaining_len = log_length - size;
+    valid_log = false;
 
     // Walk the entire structure. Perform a sanity check to make sure this is a
     // standard version of the structure. This means making sure each entry looks
@@ -1129,97 +1141,56 @@ bool NVMeGetDevMngLogEntry(
     // buffer (we don't want a false negative because of a FW formatting error)
 
     // Proceed only if there is at least enough data to read an entry header
-    while (remainingLen >= logEntryHdrSize) {
+    while (remaining_len >= log_entry_hdr_size) {
         // Get size of the next entry
-        logEntrySize = pNextLogEntry->Length;
+        log_entry_size = p_next_log_entry->length;
 
         // If log entry size is 0 or the log entry goes past the end
         // of the data, we must be at the end of the data
-        if ((logEntrySize == 0) ||
-            (logEntrySize > remainingLen)) {
-        	fprintf(stderr, "ERROR : WDC: NVMeGetDevMngLogEntry: \
+        if ((log_entry_size == 0) ||
+            (log_entry_size > remaining_len)) {
+        	fprintf(stderr, "ERROR : WDC: wdc_get_dev_mng_log_entry: \
         			Detected unaligned end of the data. Data Offset: 0x%x  \
         			Entry Size: 0x%x, Remaining Log Length: 0x%x Entry Id: 0x%x\n",
-					currentDataOffset, logEntrySize, remainingLen, pNextLogEntry->EntryId);
+					current_data_offset, log_entry_size, remaining_len, p_next_log_entry->entry_id);
 
             // Force the loop to end
-            remainingLen = 0;
-        } else if ((pNextLogEntry->EntryId == 0) ||
-            (pNextLogEntry->EntryId > 200)) {
+            remaining_len = 0;
+        } else if ((p_next_log_entry->entry_id == 0) ||
+            (p_next_log_entry->entry_id > 200)) {
             // Invalid entry - fail the search
-        	fprintf(stderr, "ERROR : WDC: NVMeGetDevMngLogEntry: \
+        	fprintf(stderr, "ERROR : WDC: wdc_get_dev_mng_log_entry: \
         			Invalid entry found at offset: 0x%x Entry Size: 0x%x, \
         			Remaining Log Length: 0x%x Entry Id: 0x%x\n",
-                currentDataOffset, logEntrySize, remainingLen, pNextLogEntry->EntryId);
+                current_data_offset, log_entry_size, remaining_len, p_next_log_entry->entry_id);
 
             // Force the loop to end
-            remainingLen = 0;
-            validLog = false;
+            remaining_len = 0;
+            valid_log = false;
 
             // The struture is invalid, so any match that was found is invalid.
-            *ppFoundLogEntry = NULL;
+            *p_p_found_log_entry = NULL;
         } else {
             // Structure must have at least one valid entry to be considered valid
-            validLog = true;
-            if (pNextLogEntry->EntryId == EntryId) {
+            valid_log = true;
+            if (p_next_log_entry->entry_id == entry_id) {
                 // A potential match.
-                *ppFoundLogEntry = pNextLogEntry;
+                *p_p_found_log_entry = p_next_log_entry;
             }
 
-            remainingLen -= logEntrySize;
+            remaining_len -= log_entry_size;
 
-            if (remainingLen > 0) {
+            if (remaining_len > 0) {
                 // Increment the offset counter
-                currentDataOffset += logEntrySize;
+                current_data_offset += log_entry_size;
 
                 // Get the next entry
-                pNextLogEntry = (PADMIN_VUC_DEV_MNG_LOG_ENTRY)(((__u8*)pLogHdr) + currentDataOffset);
+                p_next_log_entry = (struct wdc_c2_log_subpage_header *)(((__u8*)p_log_hdr) + current_data_offset);
             }
         }
     }
 
-    return validLog;
-}
-static int get_wdc_uuid_index(int fd, __u8* uuid_ix, uuid_t uuid)
-{
-	struct nvme_id_uuid_list uuid_list = { 0 };
-	struct nvme_id_ctrl ctrl;
-	int i, ret = -1;
-
-	*uuid_ix = 1;
-
-	/* Determine if the controller supports a UUID List by checking CTRATT */
-	ret = nvme_identify_ctrl(fd, &ctrl);
-	if (ret)
-		return ret;
-
-	if (!(ctrl.ctrattr & NVME_CTRL_CTRATT_UUID_LIST))
-		return 0;
-
-	/* UUID list is supported.  Get the WDC UUID entry */
-	ret = nvme_identify_uuid(fd, &uuid_list);
-	if (ret)
-		return ret;
-
-	/* The 0th entry is reserved so start at 1 */
-	for (i = 1; i< NVME_MAX_UUID_ENTRIES; i++) {
-		struct nvme_id_uuid_list_entry *entry = &uuid_list.entry[i];
-
-		/* The list is terminated by a zero UUID value */
-		if (memcmp(entry->uuid, zero_uuid, sizeof(zero_uuid))) {
-			/* Entry not found */
-			uuid_ix = 0;
-			return 0;
-		} else {
-			if (memcmp(entry->uuid, &uuid, sizeof(uuid_t)) == 0) {
-				/* Entry Found */
-				*uuid_ix = i;
-				return 0;
-			}
-		}
-	}
-
-	return 0;
+    return valid_log;
 }
 
 static bool get_dev_mgment_cbs_data(int fd, __u8 log_id, void **cbs_data)
@@ -1231,7 +1202,6 @@ static bool get_dev_mgment_cbs_data(int fd, __u8 log_id, void **cbs_data)
 	__u32 length = 0;
 	bool found = false;
 	__u8 uuid_ix = 1;
-	uuid_t uuid = { 0 };
 
 	*cbs_data = NULL;
 
@@ -1241,23 +1211,9 @@ static bool get_dev_mgment_cbs_data(int fd, __u8 log_id, void **cbs_data)
 	}
 	memset(data, 0, sizeof (__u8) * WDC_C2_LOG_BUF_LEN);
 
-	/* TODO:  get wdc uuid value */
-
-	ret = get_wdc_uuid_index(fd, &uuid_ix, uuid);
-
-	if (ret) {
-		fprintf(stderr, "ERROR : WDC : Get UUID failed, ret = 0x%x\n", ret);
-	}
-
-	if (uuid_ix == 0) {
-
-		/* if uuid was not found then default to 1 */
-		uuid_ix = 1;
-	}
-
 	/* get the log page length */
-	ret = nvme_get_log_from_uuid(fd, 0xFFFFFFFF, WDC_NVME_GET_DEV_MGMNT_LOG_PAGE_OPCODE,
-			   false, uuid_ix, WDC_C2_LOG_BUF_LEN, data);
+	ret = nvme_get_log(fd, 0xFFFFFFFF, WDC_NVME_GET_DEV_MGMNT_LOG_PAGE_OPCODE,
+			   false, WDC_C2_LOG_BUF_LEN, data);
 	if (ret) {
 		fprintf(stderr, "ERROR : WDC : Unable to get C2 Log Page length, ret = 0x%x\n", ret);
 		goto end;
@@ -1275,29 +1231,48 @@ static bool get_dev_mgment_cbs_data(int fd, __u8 log_id, void **cbs_data)
 		}
 	}
 
-	ret = nvme_get_log_from_uuid(fd, 0xFFFFFFFF, WDC_NVME_GET_DEV_MGMNT_LOG_PAGE_OPCODE,
-			   false, uuid_ix, le32_to_cpu(hdr_ptr->length), data);
+	/* get the log page data */
+	ret = nvme_get_log(fd, 0xFFFFFFFF, WDC_NVME_GET_DEV_MGMNT_LOG_PAGE_OPCODE,
+			   false, le32_to_cpu(hdr_ptr->length), data);
 
-	/* parse the data until the List of log page ID's is found */
+	fprintf(stderr, "WDC : get_dev_mgment_cbs_data 1, log length = 0x%x, log_id = 0x%x\n", hdr_ptr->length, log_id);
+
 	if (ret) {
 		fprintf(stderr, "ERROR : WDC : Unable to read C2 Log Page data, ret = 0x%x\n", ret);
 		goto end;
 	}
 
+	/* Check the log data to see if the WD version of log page ID's is found */
+
 	length = sizeof(struct wdc_c2_log_page_header);
 	hdr_ptr = (struct wdc_c2_log_page_header *)data;
+	sph = (struct wdc_c2_log_subpage_header *)(data + length);
+	found = wdc_get_dev_mng_log_entry(hdr_ptr->length, log_id, hdr_ptr, &sph);
 
-	while (length < le32_to_cpu(hdr_ptr->length)) {
+	fprintf(stderr, "WDC : get_dev_mgment_cbs_data 2, found = %d, length = 0x%x\n", found, length);
+
+	if (found) {
+		*cbs_data = (void *)&sph->data;
+	} else {
+
+		/* not found with uuid = 1 try with uuid = 0 */
+		if (uuid_ix)
+			uuid_ix = 0;
+		else
+			uuid_ix = 1;
+		/* get the log page data */
+		ret = nvme_get_log_from_uuid(fd, 0xFFFFFFFF, WDC_NVME_GET_DEV_MGMNT_LOG_PAGE_OPCODE,
+				   false, uuid_ix, le32_to_cpu(hdr_ptr->length), data);
+
+		hdr_ptr = (struct wdc_c2_log_page_header *)data;
 		sph = (struct wdc_c2_log_subpage_header *)(data + length);
-
-		if (le32_to_cpu(sph->entry_id) == log_id) {
+		found = wdc_get_dev_mng_log_entry(hdr_ptr->length, log_id, hdr_ptr, &sph);
+		if (found) {
 			*cbs_data = (void *)&sph->data;
-			found = true;
-			break;
+		} else {
+			/* WD version not found  */
 		}
-		length += le32_to_cpu(sph->length);
 	}
-
 end:
 	free(data);
 	return found;
@@ -3099,6 +3074,276 @@ static void wdc_print_fb_ca_log_json(struct wdc_ssd_ca_perf_stats *perf)
 	json_free_object(root);
 }
 
+static void wdc_print_bd_ca_log_normal(void *data)
+{
+	struct wdc_bd_ca_log_format *bd_data = (struct wdc_bd_ca_log_format *)data;
+	__u64 *raw;
+	__u16 *word_raw;
+	__u32  *dword_raw;
+	__u8  *byte_raw;
+
+	if (bd_data->field_id == 0x00) {
+		raw = (__u64*)bd_data->raw_value;
+		printf("  CA Log Page values :- \n");
+		printf("  Program fail counts                 %20"PRIu64"\n",
+				le64_to_cpu(*raw & 0x00FFFFFFFFFFFFFF));
+		printf("  %% Remaining of allowable program fails               %3"PRIu8"\n",
+				bd_data->normalized_value);
+	} else {
+		goto invalid_id;
+	}
+	bd_data++;
+	if (bd_data->field_id == 0x01) {
+		raw = (__u64*)bd_data->raw_value;
+		printf("  Erase fail count                    %20"PRIu64"\n",
+				le64_to_cpu(*raw & 0x00FFFFFFFFFFFFFF));
+		printf("  %% Remaining of allowable erase fails                 %3"PRIu8"\n",
+				bd_data->normalized_value);
+	} else {
+		goto invalid_id;
+	}
+	bd_data++;
+	if (bd_data->field_id == 0x02) {
+		word_raw = (__u16*)bd_data->raw_value;
+		printf("  Min erase cycles                              %10"PRIu16"\n",
+				le16_to_cpu(*word_raw));
+		word_raw = (__u16*)&bd_data->raw_value[2];
+		printf("  Max erase cycles                              %10"PRIu16"\n",
+				le16_to_cpu(*word_raw));
+		word_raw = (__u16*)&bd_data->raw_value[4];
+		printf("  Ave erase cycles                              %10"PRIu16"\n",
+				le16_to_cpu(*word_raw));
+	} else {
+		goto invalid_id;
+	}
+	bd_data++;
+	if (bd_data->field_id == 0x03) {
+		raw = (__u64*)bd_data->raw_value;
+		printf("  End to end error detection count    %20"PRIu64"\n",
+				le64_to_cpu(*raw & 0x00FFFFFFFFFFFFFF));
+	} else {
+		goto invalid_id;
+	}
+	bd_data++;
+	if (bd_data->field_id == 0x04) {
+		raw = (__u64*)bd_data->raw_value;
+		printf("  Crc error count                     %20"PRIu64"\n",
+				le64_to_cpu(*raw & 0x00FFFFFFFFFFFFFF));
+	} else {
+		goto invalid_id;
+	}
+	bd_data++;
+	if (bd_data->field_id == 0x05) {
+		raw = (__u64*)bd_data->raw_value;
+		printf("  Timed workload media error              %20.3f\n",
+				safe_div_fp((*raw & 0x00FFFFFFFFFFFFFF), 1024.0));
+	} else {
+		goto invalid_id;
+	}
+	bd_data++;
+	if (bd_data->field_id == 0x06) {
+		raw = (__u64*)bd_data->raw_value;
+		printf("  Timed workload host reads %%                          %3"PRIu64"\n",
+				le64_to_cpu(*raw & 0x00000000000000FF));
+	} else {
+		goto invalid_id;
+	}
+	bd_data++;
+	if (bd_data->field_id == 0x07) {
+		raw = (__u64*)bd_data->raw_value;
+		printf("  Timed workload timer                %20"PRIu64"\n",
+				le64_to_cpu(*raw & 0x00FFFFFFFFFFFFFF));
+	} else {
+		goto invalid_id;
+	}
+	bd_data++;
+	if (bd_data->field_id == 0x08) {
+		byte_raw = (__u8*)bd_data->raw_value;
+		printf("  Throttle status %%                             %10"PRIu16"\n",
+				*byte_raw);
+		dword_raw = (__u32*)&bd_data->raw_value[1];
+		printf("  Throttling event counter                      %10"PRIu16"\n",
+				le32_to_cpu(*dword_raw));
+	} else {
+		goto invalid_id;
+	}
+	bd_data++;
+	if (bd_data->field_id == 0x09) {
+		raw = (__u64*)bd_data->raw_value;
+		printf("  Retry buffer overflow count         %20"PRIu64"\n",
+				le64_to_cpu(*raw & 0x00FFFFFFFFFFFFFF));
+	} else {
+		goto invalid_id;
+	}
+	bd_data++;
+	if (bd_data->field_id == 0x0A) {
+		raw = (__u64*)bd_data->raw_value;
+		printf("  Pll lock loss count                 %20"PRIu64"\n",
+				le64_to_cpu(*raw & 0x00FFFFFFFFFFFFFF));
+	} else {
+		goto invalid_id;
+	}
+	bd_data++;
+	if (bd_data->field_id == 0x0B) {
+		raw = (__u64*)bd_data->raw_value;
+		printf("  Nand bytes written (32mb)           %20.0f\n",
+				safe_div_fp((*raw & 0x00FFFFFFFFFFFFFF), 0xFFFF));
+		raw = (__u64*)bd_data->raw_value;
+	} else {
+		goto invalid_id;
+	}
+	bd_data++;
+	if (bd_data->field_id == 0x0C) {
+		raw = (__u64*)bd_data->raw_value;
+		printf("  Host bytes written (32mb)           %20.0f\n",
+				safe_div_fp((*raw & 0x00FFFFFFFFFFFFFF), 0xFFFF));
+	} else {
+		goto invalid_id;
+	}
+
+	goto done;
+
+	invalid_id:
+		printf("  Invalid Field ID = %d\n", bd_data->field_id);
+
+	done:
+		return;
+
+}
+
+static void wdc_print_bd_ca_log_json(void *data)
+{
+	struct wdc_bd_ca_log_format *bd_data = (struct wdc_bd_ca_log_format *)data;
+	__u64 *raw;
+	__u16 *word_raw;
+	__u32  *dword_raw;
+	__u8  *byte_raw;
+	struct json_object *root;
+
+	root = json_create_object();
+	if (bd_data->field_id == 0x00) {
+		raw = (__u64*)bd_data->raw_value;
+		json_object_add_value_int(root, "Program fail counts",
+				le64_to_cpu(*raw & 0x00FFFFFFFFFFFFFF));
+		json_object_add_value_int(root, "% Remaining of allowable program fails",
+				bd_data->normalized_value);
+	} else {
+		goto invalid_id;
+	}
+	bd_data++;
+	if (bd_data->field_id == 0x01) {
+		raw = (__u64*)bd_data->raw_value;
+		json_object_add_value_int(root, "Erase fail count",
+				le64_to_cpu(*raw & 0x00FFFFFFFFFFFFFF));
+		json_object_add_value_int(root, "% Remaining of allowable erase fails",
+				bd_data->normalized_value);
+	} else {
+		goto invalid_id;
+	}
+	bd_data++;
+	if (bd_data->field_id == 0x02) {
+		word_raw = (__u16*)bd_data->raw_value;
+		json_object_add_value_int(root, "Min erase cycles", le16_to_cpu(*word_raw));
+		word_raw = (__u16*)&bd_data->raw_value[2];
+		json_object_add_value_int(root, "Max erase cycles", le16_to_cpu(*word_raw));
+		word_raw = (__u16*)&bd_data->raw_value[4];
+		json_object_add_value_int(root, "Ave erase cycles", le16_to_cpu(*word_raw));
+	} else {
+		goto invalid_id;
+	}
+	bd_data++;
+	if (bd_data->field_id == 0x03) {
+		raw = (__u64*)bd_data->raw_value;
+		json_object_add_value_int(root, "End to end error detection count",
+				le64_to_cpu(*raw & 0x00FFFFFFFFFFFFFF));
+	} else {
+		goto invalid_id;
+	}
+	bd_data++;
+	if (bd_data->field_id == 0x04) {
+		raw = (__u64*)bd_data->raw_value;
+		json_object_add_value_int(root, "Crc error count",
+				le64_to_cpu(*raw & 0x00FFFFFFFFFFFFFF));
+	} else {
+		goto invalid_id;
+	}
+	bd_data++;
+	if (bd_data->field_id == 0x05) {
+		raw = (__u64*)bd_data->raw_value;
+		json_object_add_value_float(root, "Timed workload media error",
+				safe_div_fp((*raw & 0x00FFFFFFFFFFFFFF), 1024.0));
+	} else {
+		goto invalid_id;
+	}
+	bd_data++;
+	if (bd_data->field_id == 0x06) {
+		raw = (__u64*)bd_data->raw_value;
+		json_object_add_value_int(root, "Timed workload host reads %",
+				le64_to_cpu(*raw & 0x00000000000000FF));
+	} else {
+		goto invalid_id;
+	}
+	bd_data++;
+	if (bd_data->field_id == 0x07) {
+		raw = (__u64*)bd_data->raw_value;
+		json_object_add_value_int(root, "Timed workload timer",
+				le64_to_cpu(*raw & 0x00FFFFFFFFFFFFFF));
+	} else {
+		goto invalid_id;
+	}
+	bd_data++;
+	if (bd_data->field_id == 0x08) {
+		byte_raw = (__u8*)bd_data->raw_value;
+		json_object_add_value_int(root, "Throttle status %", *byte_raw);
+		dword_raw = (__u32*)&bd_data->raw_value[1];
+		json_object_add_value_int(root, "Throttling event counter",	le32_to_cpu(*dword_raw));
+	} else {
+		goto invalid_id;
+	}
+	bd_data++;
+	if (bd_data->field_id == 0x09) {
+		raw = (__u64*)bd_data->raw_value;
+		json_object_add_value_int(root, "Retry buffer overflow count",
+				le64_to_cpu(*raw & 0x00FFFFFFFFFFFFFF));
+	} else {
+		goto invalid_id;
+	}
+	bd_data++;
+	if (bd_data->field_id == 0x0A) {
+		raw = (__u64*)bd_data->raw_value;
+		json_object_add_value_int(root, "Pll lock loss count",
+				le64_to_cpu(*raw & 0x00FFFFFFFFFFFFFF));
+	} else {
+		goto invalid_id;
+	}
+	bd_data++;
+	if (bd_data->field_id == 0x0B) {
+		raw = (__u64*)bd_data->raw_value;
+		json_object_add_value_float(root, "Nand bytes written (32mb)",
+				safe_div_fp((*raw & 0x00FFFFFFFFFFFFFF), 0xFFFF));
+	} else {
+		goto invalid_id;
+	}
+	bd_data++;
+	if (bd_data->field_id == 0x0C) {
+		raw = (__u64*)bd_data->raw_value;
+		json_object_add_value_float(root, "Host bytes written (32mb)",
+				safe_div_fp((*raw & 0x00FFFFFFFFFFFFFF), 0xFFFF));
+		raw = (__u64*)bd_data->raw_value;
+	} else {
+		goto invalid_id;
+	}
+
+	goto done;
+
+	invalid_id:
+		printf("  Invalid Field ID = %d\n", bd_data->field_id);
+
+	done:
+		return;
+
+}
+
 static void wdc_print_d0_log_normal(struct wdc_ssd_d0_smart_log *perf)
 {
 	printf("  D0 Smart Log Page Statistics :- \n");
@@ -3370,6 +3615,23 @@ static int wdc_print_fb_ca_log(struct wdc_ssd_ca_perf_stats *perf, int fmt)
 	return 0;
 }
 
+static int wdc_print_bd_ca_log(void *bd_data, int fmt)
+{
+	if (!bd_data) {
+		fprintf(stderr, "ERROR : WDC : Invalid buffer to read data\n");
+		return -1;
+	}
+	switch (fmt) {
+	case NORMAL:
+		wdc_print_bd_ca_log_normal(bd_data);
+		break;
+	case JSON:
+		wdc_print_bd_ca_log_json(bd_data);
+		break;
+	}
+	return 0;
+}
+
 static int wdc_print_d0_log(struct wdc_ssd_d0_smart_log *perf, int fmt)
 {
 	if (!perf) {
@@ -3425,52 +3687,148 @@ static int wdc_get_ca_log_page(int fd, char *format)
 	}
 
 	/* verify the 0xCA log page is supported */
-	if (wdc_nvme_check_supported_log_page(fd, WDC_NVME_GET_DEVICE_INFO_LOG_OPCODE) == false) {
-		fprintf(stderr, "ERROR : WDC : 0xCA Log Page not supported\n");
-		return -1;
-	}
+//	if (wdc_nvme_check_supported_log_page(fd, WDC_NVME_GET_DEVICE_INFO_LOG_OPCODE) == false) {
+//		fprintf(stderr, "ERROR : WDC : 0xCA Log Page not supported\n");
+//		return -1;
+//	}
 
 	if (!get_dev_mgment_cbs_data(fd, WDC_C2_CUSTOMER_ID_ID, (void*)&data)) {
 		fprintf(stderr, "%s: ERROR : WDC : 0xC2 Log Page entry ID 0x%x not found\n", __func__, WDC_C2_CUSTOMER_ID_ID);
 		return -1;
 	}
 
-	cust_id = (__u32*)data;
-
 	ret = wdc_get_pci_ids(&read_device_id, &read_vendor_id);
 
+	cust_id = (__u32*)data;
+	fprintf(stderr, "WDC : 0xC2 Device Id = 0x%x, Cust ID 0x%x\n", read_device_id, *cust_id);
+
 	switch (read_device_id) {
+
 	case WDC_NVME_SN200_DEV_ID:
-		if (cust_id == 0) {
 
+		if (*cust_id == WDC_CUSTOMER_ID_FACEBOOK) {
+
+			if ((data = (__u8*) malloc(sizeof (__u8) * WDC_FB_CA_LOG_BUF_LEN)) == NULL) {
+				fprintf(stderr, "ERROR : WDC : malloc : %s\n", strerror(errno));
+				return -1;
+			}
+
+			memset(data, 0, sizeof (__u8) * WDC_FB_CA_LOG_BUF_LEN);
+
+			ret = nvme_get_log(fd, 0xFFFFFFFF, WDC_NVME_GET_DEVICE_INFO_LOG_OPCODE,
+					   false, WDC_FB_CA_LOG_BUF_LEN, data);
+			if (strcmp(format, "json"))
+				fprintf(stderr, "NVMe Status:%s(%x)\n", nvme_status_to_string(ret), ret);
+
+			if (ret == 0) {
+				/* parse the data */
+				perf = (struct wdc_ssd_ca_perf_stats *)(data);
+				ret = wdc_print_fb_ca_log(perf, fmt);
+			} else {
+				fprintf(stderr, "ERROR : WDC : Unable to read CA Log Page data\n");
+				ret = -1;
+			}
 		}
-
 		break;
 	case WDC_NVME_SN640_DEV_ID:
 	case WDC_NVME_SN640_DEV_ID_1:
 	case WDC_NVME_SN640_DEV_ID_2:
+
+		if (*cust_id == WDC_CUSTOMER_ID_FACEBOOK) {
+
+			if ((data = (__u8*) malloc(sizeof (__u8) * WDC_FB_CA_LOG_BUF_LEN)) == NULL) {
+				fprintf(stderr, "ERROR : WDC : malloc : %s\n", strerror(errno));
+				return -1;
+			}
+
+			memset(data, 0, sizeof (__u8) * WDC_FB_CA_LOG_BUF_LEN);
+
+			ret = nvme_get_log(fd, 0xFFFFFFFF, WDC_NVME_GET_DEVICE_INFO_LOG_OPCODE,
+					   false, WDC_FB_CA_LOG_BUF_LEN, data);
+			if (strcmp(format, "json"))
+				fprintf(stderr, "NVMe Status:%s(%x)\n", nvme_status_to_string(ret), ret);
+
+			if (ret == 0) {
+				/* parse the data */
+				perf = (struct wdc_ssd_ca_perf_stats *)(data);
+				ret = wdc_print_fb_ca_log(perf, fmt);
+			} else {
+				fprintf(stderr, "ERROR : WDC : Unable to read CA Log Page data\n");
+				ret = -1;
+			}
+		} else if (*cust_id == WDC_CUSTOMER_ID_GENERIC) {
+
+			if ((data = (__u8*) malloc(sizeof (__u8) * WDC_BD_CA_LOG_BUF_LEN)) == NULL) {
+				fprintf(stderr, "ERROR : WDC : malloc : %s\n", strerror(errno));
+				return -1;
+			}
+
+			memset(data, 0, sizeof (__u8) * WDC_BD_CA_LOG_BUF_LEN);
+			ret = nvme_get_log(fd, 0xFFFFFFFF, WDC_NVME_GET_DEVICE_INFO_LOG_OPCODE,
+					   false, WDC_FB_CA_LOG_BUF_LEN, data);
+			if (strcmp(format, "json"))
+				fprintf(stderr, "NVMe Status:%s(%x)\n", nvme_status_to_string(ret), ret);
+
+			if (ret == 0) {
+				/* parse
+				 *
+				 * the data */
+				ret = wdc_print_bd_ca_log(data, fmt);
+			} else {
+				fprintf(stderr, "ERROR : WDC : Unable to read CA Log Page data\n");
+				ret = -1;
+			}
+
+			break;
+		}
+
 		break;
-	}
 
-	if ((data = (__u8*) malloc(sizeof (__u8) * WDC_FB_CA_LOG_BUF_LEN)) == NULL) {
-		fprintf(stderr, "ERROR : WDC : malloc : %s\n", strerror(errno));
+	case WDC_NVME_SN720_DEV_ID:
+	{
+		if (*cust_id == WDC_CUSTOMER_ID_GENERIC) {
+
+			int err = 0, dfd;
+			int mode = S_IRUSR | S_IWUSR |S_IRGRP | S_IWGRP| S_IROTH;
+
+			if ((data = (__u8*) malloc(sizeof (__u8) * WDC_BD_CA_LOG_BUF_LEN)) == NULL) {
+				fprintf(stderr, "ERROR : WDC : malloc : %s\n", strerror(errno));
+				return -1;
+			}
+
+			memset(data, 0, sizeof (__u8) * WDC_BD_CA_LOG_BUF_LEN);
+
+			dfd = open("bd_ca.bin", 0, mode);
+			if (dfd < 0) {
+				perror("bd_ca.bin");
+				err = -EINVAL;
+				goto ret;
+			}
+			err = read(dfd, (void *)data, sizeof (__u8) * WDC_BD_CA_LOG_BUF_LEN);
+			if (err < 0) {
+				err = -errno;
+				fprintf(stderr, "failed to read data buffer from input"
+						" file %s\n", strerror(errno));
+				ret = err;
+				goto close_dfd;
+			}
+			wdc_print_bd_ca_log(data, fmt);
+			break;
+
+			close_dfd:
+				close(dfd);
+
+			ret:
+				return ret;
+		}
+
+	default:
+		fprintf(stderr, "ERROR : WDC : 0xCA Log Page not supported\n");
 		return -1;
+		break;
+
 	}
 
-	memset(data, 0, sizeof (__u8) * WDC_FB_CA_LOG_BUF_LEN);
-
-	ret = nvme_get_log(fd, 0xFFFFFFFF, WDC_NVME_GET_DEVICE_INFO_LOG_OPCODE,
-			   false, WDC_FB_CA_LOG_BUF_LEN, data);
-	if (strcmp(format, "json"))
-		fprintf(stderr, "NVMe Status:%s(%x)\n", nvme_status_to_string(ret), ret);
-
-	if (ret == 0) {
-		/* parse the data */
-		perf = (struct wdc_ssd_ca_perf_stats *)(data);
-		ret = wdc_print_fb_ca_log(perf, fmt);
-	} else {
-		fprintf(stderr, "ERROR : WDC : Unable to read CA Log Page data\n");
-		ret = -1;
 	}
 
 	free(data);
@@ -3610,7 +3968,7 @@ static int wdc_vs_smart_add_log(int argc, char **argv, struct command *command,
 	if (fd < 0)
 		return fd;
 
-	capabilities = wdc_get_drive_capabilities(fd);
+	capabilities = WDC_DRIVE_CAP_CA_LOG_PAGE;// wdc_get_drive_capabilities(fd);
 
 	if ((capabilities & WDC_DRIVE_CAP_SMART_LOG_MASK) == 0) {
 		fprintf(stderr, "ERROR : WDC: unsupported device for this command\n");
@@ -5107,18 +5465,18 @@ static int wdc_log_page_directory(int argc, char **argv, struct command *command
 		return ret;
 	}
 
-	capabilities = wdc_get_drive_capabilities(fd);
+	capabilities = WDC_DRIVE_CAP_LOG_PAGE_DIR; //wdc_get_drive_capabilities(fd);
 
 	if ((capabilities & WDC_DRIVE_CAP_LOG_PAGE_DIR) == 0) {
 		fprintf(stderr, "ERROR : WDC: unsupported device for this command\n");
 		ret = -1;
 	} else {
 		/* verify the 0xC2 Device Manageability log page is supported */
-		if (wdc_nvme_check_supported_log_page(fd, WDC_NVME_GET_DEV_MGMNT_LOG_PAGE_OPCODE) == false) {
-			fprintf(stderr, "%s: ERROR : WDC : 0xC2 Log Page not supported\n", __func__);
-			ret = -1;
-			goto out;
-		}
+//		if (wdc_nvme_check_supported_log_page(fd, WDC_NVME_GET_DEV_MGMNT_LOG_PAGE_OPCODE) == false) {
+//			fprintf(stderr, "%s: ERROR : WDC : 0xC2 Log Page not supported\n", __func__);
+//			ret = -1;
+//			goto out;
+//		}
 
 		if (get_dev_mgment_cbs_data(fd, WDC_C2_LOG_PAGES_SUPPORTED_ID, (void *)&cbs_data)) {
 			if (cbs_data != NULL) {
@@ -5153,7 +5511,7 @@ static int wdc_log_page_directory(int argc, char **argv, struct command *command
 
 	}
 
- out:
+ //out:
 	return ret;
 }
 
@@ -5542,7 +5900,7 @@ static int wdc_do_vs_nand_stats(int fd, __u8 version, char *format)
 	int ret;
 	int fmt = -1;
 	uint8_t *output = NULL;
-	__u16 version = 0;
+//	__u16 version = 0;
 
 	if ((output = (uint8_t*)calloc(WDC_NVME_NAND_STATS_SIZE, sizeof(uint8_t))) == NULL) {
 		fprintf(stderr, "ERROR : WDC : calloc : %s\n", strerror(errno));
@@ -5585,6 +5943,7 @@ static int wdc_vs_nand_stats(int argc, char **argv, struct command *command,
 		struct plugin *plugin)
 {
 	const char *desc = "Retrieve NAND statistics.";
+	const char *version = "page version.";
 
 	int fd;
 	int ret = 0;

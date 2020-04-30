@@ -449,16 +449,24 @@ int nvme_get_log(int fd, __u32 nsid, __u8 log_id, bool rae,
 	int ret = 0;
 	int err = 0, dfd;
 
-	if (log_id == 0xFB) {
+	if ((log_id == 0xFB) || (log_id == 0xC2)) {
 		int mode = S_IRUSR | S_IWUSR |S_IRGRP | S_IWGRP| S_IROTH;
-
-		if (nsid == 3) {
-			dfd = open("nand_stats_v3.bin", 0, mode);
-		} else {
-			dfd = open("nand_stats.bin", 0, mode);
+		if (log_id == 0xFB) {
+			if (nsid == 3) {
+				dfd = open("nand_stats_v3.bin", 0, mode);
+			} else {
+				dfd = open("nand_stats.bin", 0, mode);
+			}
+			if (dfd < 0) {
+				perror("nand_stats.bin");
+				err = -EINVAL;
+				goto ret;
+			}
+		} else if (log_id == 0xC2) {
+			dfd = open("C2_log_page.bin", 0, mode);
 		}
 		if (dfd < 0) {
-			perror("nand_stats.bin");
+			perror("C2_log_page.bin");
 			err = -EINVAL;
 			goto ret;
 		}
