@@ -3733,6 +3733,7 @@ static int wdc_get_ca_log_page(int fd, char *format)
 	case WDC_NVME_SN640_DEV_ID:
 	case WDC_NVME_SN640_DEV_ID_1:
 	case WDC_NVME_SN640_DEV_ID_2:
+	case WDC_NVME_SN720_DEV_ID:
 
 		if (*cust_id == WDC_CUSTOMER_ID_FACEBOOK) {
 
@@ -3765,7 +3766,7 @@ static int wdc_get_ca_log_page(int fd, char *format)
 
 			memset(data, 0, sizeof (__u8) * WDC_BD_CA_LOG_BUF_LEN);
 			ret = nvme_get_log(fd, 0xFFFFFFFF, WDC_NVME_GET_DEVICE_INFO_LOG_OPCODE,
-					   false, WDC_FB_CA_LOG_BUF_LEN, data);
+					   false, WDC_BD_CA_LOG_BUF_LEN, data);
 			if (strcmp(format, "json"))
 				fprintf(stderr, "NVMe Status:%s(%x)\n", nvme_status_to_string(ret), ret);
 
@@ -3784,50 +3785,11 @@ static int wdc_get_ca_log_page(int fd, char *format)
 
 		break;
 
-	case WDC_NVME_SN720_DEV_ID:
-	{
-		if (*cust_id == WDC_CUSTOMER_ID_GENERIC) {
-
-			int err = 0, dfd;
-			int mode = S_IRUSR | S_IWUSR |S_IRGRP | S_IWGRP| S_IROTH;
-
-			if ((data = (__u8*) malloc(sizeof (__u8) * WDC_BD_CA_LOG_BUF_LEN)) == NULL) {
-				fprintf(stderr, "ERROR : WDC : malloc : %s\n", strerror(errno));
-				return -1;
-			}
-
-			memset(data, 0, sizeof (__u8) * WDC_BD_CA_LOG_BUF_LEN);
-
-			dfd = open("bd_ca.bin", 0, mode);
-			if (dfd < 0) {
-				perror("bd_ca.bin");
-				err = -EINVAL;
-				goto ret;
-			}
-			err = read(dfd, (void *)data, sizeof (__u8) * WDC_BD_CA_LOG_BUF_LEN);
-			if (err < 0) {
-				err = -errno;
-				fprintf(stderr, "failed to read data buffer from input"
-						" file %s\n", strerror(errno));
-				ret = err;
-				goto close_dfd;
-			}
-			wdc_print_bd_ca_log(data, fmt);
-			break;
-
-			close_dfd:
-				close(dfd);
-
-			ret:
-				return ret;
-		}
 
 	default:
 		fprintf(stderr, "ERROR : WDC : 0xCA Log Page not supported\n");
 		return -1;
 		break;
-
-	}
 
 	}
 
@@ -3909,10 +3871,10 @@ static int wdc_get_d0_log_page(int fd, char *format)
 	}
 
 	/* verify the 0xD0 log page is supported */
-	if (wdc_nvme_check_supported_log_page(fd, WDC_NVME_GET_VU_SMART_LOG_OPCODE) == false) {
-		fprintf(stderr, "ERROR : WDC : 0xD0 Log Page not supported\n");
-		return -1;
-	}
+//	if (wdc_nvme_check_supported_log_page(fd, WDC_NVME_GET_VU_SMART_LOG_OPCODE) == false) {
+//		fprintf(stderr, "ERROR : WDC : 0xD0 Log Page not supported\n");
+//		return -1;
+//	}
 
 	if ((data = (__u8*) malloc(sizeof (__u8) * WDC_NVME_VU_SMART_LOG_LEN)) == NULL) {
 		fprintf(stderr, "ERROR : WDC : malloc : %s\n", strerror(errno));
