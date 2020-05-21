@@ -449,7 +449,9 @@ int nvme_get_log(int fd, __u32 nsid, __u8 log_id, bool rae,
 	int ret = 0;
 	int err = 0, dfd;
 
-	if ((log_id == 0xFB) || (log_id == 0xC2)) {
+	fprintf(stderr, "nvme_get_log: log_id = 0x%x\n", log_id);
+
+	if ((log_id == 0xFB) || (log_id == 0xC2) || (log_id == 0xCA)) {
 		int mode = S_IRUSR | S_IWUSR |S_IRGRP | S_IWGRP| S_IROTH;
 		if (log_id == 0xFB) {
 			if (nsid == 3) {
@@ -464,6 +466,8 @@ int nvme_get_log(int fd, __u32 nsid, __u8 log_id, bool rae,
 			}
 		} else if (log_id == 0xC2) {
 			dfd = open("C2_log_page.bin", 0, mode);
+		} else if (log_id == 0xCA) {
+			dfd = open("bd_ca.bin", 0, mode);
 		}
 		if (dfd < 0) {
 			perror("C2_log_page.bin");
