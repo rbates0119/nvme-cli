@@ -600,9 +600,9 @@ int nvme_persistent_log(int fd, __u8 action, __u64 lpo, __u32 data_len, void *da
 
 	if (action < 2) {
 
-		dfd = open("test.bin", 0, mode);
+		dfd = open("pel.bin", 0, mode);
 		if (dfd < 0) {
-			perror("test.bin");
+			perror("pel.bin");
 			err = -EINVAL;
 			goto ret;
 		}
