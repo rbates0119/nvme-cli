@@ -123,9 +123,9 @@
 
 /* Customer ID's */
 #define WDC_CUSTOMER_ID_GENERIC				0x0001
-#define WDC_CUSTOMER_ID_AMAZON				0x1002
-#define WDC_CUSTOMER_ID_MICROSOFT			0x1004
-#define WDC_CUSTOMER_ID_FACEBOOK			0x1005
+#define WDC_CUSTOMER_ID_0x1002				0x1002
+#define WDC_CUSTOMER_ID_0x1004				0x1004
+#define WDC_CUSTOMER_ID_0x1005				0x1005
 
 /* Drive Resize */
 #define WDC_NVME_DRIVE_RESIZE_OPCODE			0xCC
@@ -259,7 +259,7 @@
 
 /* C0 EOL Status Log Page */
 #define WDC_NVME_GET_EOL_STATUS_LOG_OPCODE		0xC0
-#define WDC_NVME_EOL_STATUS_LOG_LEN			0x200
+#define WDC_NVME_EOL_STATUS_LOG_LEN				0x200
 
 /* CB - FW Activate History Log Page */
 #define WDC_NVME_GET_FW_ACT_HISTORY_LOG_ID      0xCB
@@ -267,7 +267,7 @@
 
 /* D0 Smart Log Page */
 #define WDC_NVME_GET_VU_SMART_LOG_OPCODE		0xD0
-#define WDC_NVME_VU_SMART_LOG_LEN			0x200
+#define WDC_NVME_VU_SMART_LOG_LEN				0x200
 
 /* Log Page Directory defines  */
 #define NVME_LOG_PERSISTENT_EVENT               0x0D
@@ -1831,8 +1831,8 @@ static int wdc_do_cap_dui(int fd, char *file, __u32 xfer_size, int data_area, in
 			total_size = log_size;
 
 			if (offset >= total_size) {
-				fprintf(stderr, "%s: INFO : WDC : Offset 0x%llx exceeds total size 0x%llx, no data retrieved\n",
-					__func__, offset, total_size);
+				fprintf(stderr, "%s: INFO : WDC : Offset 0x%"PRIx64" exceeds total size 0x%"PRIx64", no data retrieved\n",
+					__func__, (uint64_t)offset, (uint64_t)total_size);
 				goto out;
 			}
 
@@ -1863,8 +1863,8 @@ static int wdc_do_cap_dui(int fd, char *file, __u32 xfer_size, int data_area, in
 					log_size = min(total_size, file_size);
 
 				if (verbose)
-					fprintf(stderr, "%s: INFO : WDC : Offset 0x%llx, file size 0x%llx, total size 0x%llx, log size 0x%llx\n",
-						__func__, offset, file_size, total_size, log_size);
+					fprintf(stderr, "%s: INFO : WDC : Offset 0x%"PRIx64", file size 0x%"PRIx64", total size 0x%"PRIx64", log size 0x%"PRIx64"\n",
+						__func__, (uint64_t)offset, (uint64_t)file_size, (uint64_t)total_size, (uint64_t)log_size);
 
 				curr_data_offset = offset;
 
@@ -3113,6 +3113,9 @@ static void wdc_print_bd_ca_log_normal(void *data)
 		word_raw = (__u16*)&bd_data->raw_value[4];
 		printf("  Ave erase cycles                              %10"PRIu16"\n",
 				le16_to_cpu(*word_raw));
+		printf("  Wear Leveling Normalized 		               %3"PRIu8"\n",
+				bd_data->normalized_value);
+
 	} else {
 		goto invalid_id;
 	}
@@ -3197,6 +3200,7 @@ static void wdc_print_bd_ca_log_normal(void *data)
 		raw = (__u64*)bd_data->raw_value;
 		printf("  Host bytes written (32mb)           %20.0f\n",
 				safe_div_fp((*raw & 0x00FFFFFFFFFFFFFF), 0xFFFF));
+		raw = (__u64*)bd_data->raw_value;
 	} else {
 		goto invalid_id;
 	}
@@ -3248,6 +3252,7 @@ static void wdc_print_bd_ca_log_json(void *data)
 		json_object_add_value_int(root, "Max erase cycles", le16_to_cpu(*word_raw));
 		word_raw = (__u16*)&bd_data->raw_value[4];
 		json_object_add_value_int(root, "Ave erase cycles", le16_to_cpu(*word_raw));
+		json_object_add_value_int(root, "Wear Leveling Normalized",	bd_data->normalized_value);
 	} else {
 		goto invalid_id;
 	}
@@ -3697,16 +3702,20 @@ static int wdc_get_ca_log_page(int fd, char *format)
 		return -1;
 	}
 
+	if (!get_dev_mgment_cbs_data(fd, WDC_C2_CUSTOMER_ID_ID, (void*)&data)) {
+		fprintf(stderr, "%s: ERROR : WDC : 0xC2 Log Page entry ID 0x%x not found\n", __func__, WDC_C2_CUSTOMER_ID_ID);
+		return -1;
+	}
+
 	ret = wdc_get_pci_ids(&read_device_id, &read_vendor_id);
 
 	cust_id = (__u32*)data;
-	fprintf(stderr, "WDC : 0xC2 Device Id = 0x%x, Cust ID 0x%x\n", read_device_id, *cust_id);
 
 	switch (read_device_id) {
 
 	case WDC_NVME_SN200_DEV_ID:
 
-		if (*cust_id == WDC_CUSTOMER_ID_FACEBOOK) {
+		if (*cust_id == WDC_CUSTOMER_ID_0x1005) {
 
 			if ((data = (__u8*) malloc(sizeof (__u8) * WDC_FB_CA_LOG_BUF_LEN)) == NULL) {
 				fprintf(stderr, "ERROR : WDC : malloc : %s\n", strerror(errno));
@@ -3728,14 +3737,20 @@ static int wdc_get_ca_log_page(int fd, char *format)
 				fprintf(stderr, "ERROR : WDC : Unable to read CA Log Page data\n");
 				ret = -1;
 			}
+		} else {
+
+			fprintf(stderr, "ERROR : WDC : Unsupported Customer id, id = %d\n", *cust_id);
+			return -1;
 		}
 		break;
+
 	case WDC_NVME_SN640_DEV_ID:
 	case WDC_NVME_SN640_DEV_ID_1:
 	case WDC_NVME_SN640_DEV_ID_2:
-	case WDC_NVME_SN720_DEV_ID:
+	case WDC_NVME_SN840_DEV_ID:
+	case WDC_NVME_SN840_DEV_ID_1:
 
-		if (*cust_id == WDC_CUSTOMER_ID_FACEBOOK) {
+		if (*cust_id == WDC_CUSTOMER_ID_0x1005) {
 
 			if ((data = (__u8*) malloc(sizeof (__u8) * WDC_FB_CA_LOG_BUF_LEN)) == NULL) {
 				fprintf(stderr, "ERROR : WDC : malloc : %s\n", strerror(errno));
@@ -3771,9 +3786,7 @@ static int wdc_get_ca_log_page(int fd, char *format)
 				fprintf(stderr, "NVMe Status:%s(%x)\n", nvme_status_to_string(ret), ret);
 
 			if (ret == 0) {
-				/* parse
-				 *
-				 * the data */
+				/* parse the data */
 				ret = wdc_print_bd_ca_log(data, fmt);
 			} else {
 				fprintf(stderr, "ERROR : WDC : Unable to read CA Log Page data\n");
@@ -3781,16 +3794,18 @@ static int wdc_get_ca_log_page(int fd, char *format)
 			}
 
 			break;
+		} else {
+
+			fprintf(stderr, "ERROR : WDC : Unsupported Customer id, id = %d\n", *cust_id);
+			return -1;
 		}
-
 		break;
-
 
 	default:
-		fprintf(stderr, "ERROR : WDC : 0xCA Log Page not supported\n");
+
+		fprintf(stderr, "ERROR : WDC : Log page 0xCA not supported for this device\n");
 		return -1;
 		break;
-
 	}
 
 	free(data);

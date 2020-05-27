@@ -55,6 +55,8 @@ static int compare_fw_version(const char *fw1, const char *fw2)
 
 // 2.83 = raisin
 #define IS_RAISIN(str)          (!strcmp(str, "2.83"))
+// 2.13 = papaya
+#define IS_PAPAYA(str)          (!strcmp(str, "2.13"))
 #define STR_VER_SIZE            5
 
 int getlogpage_format_type(char *fw_ver)
@@ -226,7 +228,11 @@ static void show_memblaze_smart_log_new(struct nvme_memblaze_smart_log *s,
 static void show_memblaze_smart_log_old(struct nvme_memblaze_smart_log *smart,
     unsigned int nsid, const char *devname, const char *fw_ver)
 {
+    char fw_ver_local[STR_VER_SIZE];
     struct nvme_memblaze_smart_log_item *item;
+
+    strncpy(fw_ver_local, fw_ver, STR_VER_SIZE);
+    *(fw_ver_local + STR_VER_SIZE - 1) = '\0';
 
     printf("Additional Smart Log for NVME device:%s namespace-id:%x\n", devname, nsid);
 
@@ -316,6 +322,36 @@ static void show_memblaze_smart_log_old(struct nvme_memblaze_smart_log *smart,
     if (item_id_2_u32(item) == 0xF2)
         printf("Read Fail Count	                                 		: %llu\n",
             (unsigned long long)raw_2_u64(item->rawval, sizeof(item->rawval)));
+
+     if ( IS_PAPAYA(fw_ver_local) ) {
+        struct nvme_p4_smart_log *s = (struct nvme_p4_smart_log *)smart;
+        u8 *nm = malloc(NM_SIZE * sizeof(u8));
+        u8 *raw = malloc(RAW_SIZE * sizeof(u8));
+
+        /* 00 RAISIN_SI_VD_PROGRAM_FAIL */
+        get_memblaze_new_smart_info(s, PROGRAM_FAIL, nm, raw);
+        printf("%-32s                                : %3d%%       %"PRIu64"\n",
+			STR00_01, *nm, int48_to_long(raw));
+        /* 01 RAISIN_SI_VD_ERASE_FAIL */
+        get_memblaze_new_smart_info(s, ERASE_FAIL, nm, raw);
+        printf("%-32s                                : %3d%%       %"PRIu64"\n",
+			STR01_01, *nm, int48_to_long(raw));
+        /* 02 RAISIN_SI_VD_WEARLEVELING_COUNT */
+        get_memblaze_new_smart_info(s, WEARLEVELING_COUNT, nm, raw);
+        printf("%-31s                                 : %3d%%       %s%u%s%u%s%u\n",
+			STR02_01, *nm, STR02_03, *raw, STR02_04, *(raw+2), STR02_05, *(raw+4));
+        /* 11 RAISIN_SI_VD_TOTAL_WRITE */
+        get_memblaze_new_smart_info(s, TOTAL_WRITE, nm, raw);
+        printf("%-32s                                : %3d%%       %"PRIu64"\n",
+			STR11_01, *nm, 32*int48_to_long(raw));
+        /* 12 RAISIN_SI_VD_HOST_WRITE */
+        get_memblaze_new_smart_info(s, HOST_WRITE, nm, raw);
+        printf("%-32s                                : %3d%%       %"PRIu64"\n",
+			STR12_01, *nm, 32*int48_to_long(raw));
+
+        free(nm);
+        free(raw);
+    }
 }
 
 static int show_memblaze_smart_log(int fd, __u32 nsid, const char *devname,
@@ -328,6 +364,7 @@ static int show_memblaze_smart_log(int fd, __u32 nsid, const char *devname,
     err = nvme_identify_ctrl(fd, &ctrl);
     if (err)
         return err;
+
     snprintf(fw_ver, sizeof(fw_ver), "%c.%c%c.%c%c%c%c",
         ctrl.fr[0], ctrl.fr[1], ctrl.fr[2], ctrl.fr[3],
         ctrl.fr[4], ctrl.fr[5], ctrl.fr[6]);
@@ -590,6 +627,133 @@ static int set_additional_feature(int argc, char **argv, struct command *cmd, st
 free:
 	if (buf)
 		free(buf);
+	return err;
+}
+
+static int memblaze_fw_commit(int fd, int select)
+{
+	struct nvme_admin_cmd cmd = {
+		.opcode		= nvme_admin_activate_fw,
+		.cdw10		= 8,
+		.cdw12      = select,
+	};
+
+	return nvme_submit_admin_passthru(fd, &cmd);
+}
+
+static int memblaze_selective_download(int argc, char **argv, struct command *cmd, struct plugin *plugin)
+{
+	const char *desc =
+		"This performs a selective firmware download, which allows the user to "
+		"select which firmware binary to update for 9200 devices. This requires a power cycle once the "
+		"update completes. The options available are: \n\n"
+		"OOB - This updates the OOB and main firmware\n"
+		"EEP - This updates the eeprom and main firmware\n"
+		"ALL - This updates the eeprom, OOB, and main firmware";
+	const char *fw = "firmware file (required)";
+	const char *select = "FW Select (e.g., --select=OOB, EEP, ALL)";
+	int xfer = 4096;
+	void *fw_buf;
+	int fd, selectNo,fw_fd,fw_size,err,offset = 0;
+	struct stat sb;
+	int i;
+
+	struct config {
+		char  *fw;
+		char  *select;
+	};
+
+	struct config cfg = {
+		.fw     = "",
+		.select = "\0",
+	};
+
+	OPT_ARGS(opts) = {
+		OPT_STRING("fw", 'f', "FILE", &cfg.fw, fw),
+		OPT_STRING("select", 's', "flag", &cfg.select, select),
+		OPT_END()
+	};
+
+	fd = parse_and_open(argc, argv, desc, opts);
+	if (fd < 0)
+		return fd;
+
+	if (strlen(cfg.select) != 3) {
+		fprintf(stderr, "Invalid select flag\n");
+		err = EINVAL;
+		goto out;
+	}
+
+	for (i = 0; i < 3; i++) {
+		cfg.select[i] = toupper(cfg.select[i]);
+	}
+
+	if (strncmp(cfg.select,"OOB", 3) == 0) {
+		selectNo = 18;
+	} else if (strncmp(cfg.select,"EEP", 3) == 0) {
+		selectNo = 10;
+	} else if (strncmp(cfg.select,"ALL", 3) == 0) {
+		selectNo = 26;
+	} else {
+		fprintf(stderr, "Invalid select flag\n");
+		err = EINVAL;
+		goto out;
+	}
+
+	fw_fd = open(cfg.fw, O_RDONLY);
+	if (fw_fd < 0) {
+		fprintf(stderr, "no firmware file provided\n");
+		err = EINVAL;
+		goto out;
+	}
+
+	err = fstat(fw_fd, &sb);
+	if (err < 0) {
+		perror("fstat");
+		err = errno;
+	}
+
+	fw_size = sb.st_size;
+	if (fw_size & 0x3) {
+		fprintf(stderr, "Invalid size:%d for f/w image\n", fw_size);
+		err = EINVAL;
+		goto out;
+	}
+
+	if (posix_memalign(&fw_buf, getpagesize(), fw_size)) {
+		fprintf(stderr, "No memory for f/w size:%d\n", fw_size);
+		err = ENOMEM;
+		goto out;
+	}
+
+	if (read(fw_fd, fw_buf, fw_size) != ((ssize_t)(fw_size)))
+		return EIO;
+
+	while (fw_size > 0) {
+		xfer = min(xfer, fw_size);
+
+		err = nvme_fw_download(fd, offset, xfer, fw_buf);
+		if (err < 0) {
+			perror("fw-download");
+			goto out;
+		} else if (err != 0) {
+			fprintf(stderr, "NVME Admin command error:%s(%x)\n",
+					nvme_status_to_string(err), err);
+			goto out;
+		}
+		fw_buf     += xfer;
+		fw_size    -= xfer;
+		offset += xfer;
+	}
+
+	err = memblaze_fw_commit(fd,selectNo);
+
+	if(err == 0x10B || err == 0x20B) {
+		err = 0;
+		fprintf(stderr, "Update successful! Please power cycle for changes to take effect\n");
+	}
+
+out:
 	return err;
 }
 

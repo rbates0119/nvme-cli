@@ -84,6 +84,7 @@ static struct config {
 	int  data_digest;
 	bool persistent;
 	bool quiet;
+	bool matching_only;
 } cfg = { NULL };
 
 struct connect_args {
@@ -994,6 +995,13 @@ retry:
 		p+= len;
 	}
 
+	if (cfg.reconnect_delay) {
+		len = sprintf(p, ",reconnect_delay=%d", cfg.reconnect_delay);
+		if (len < 0)
+			return -EINVAL;
+		p += len;
+	}
+
 	if (cfg.ctrl_loss_tmo) {
 		len = sprintf(p, ",ctrl_loss_tmo=%d", cfg.ctrl_loss_tmo);
 		if (len < 0)
@@ -1103,6 +1111,17 @@ retry:
 	return ret;
 }
 
+static bool should_connect(struct nvmf_disc_rsp_page_entry *entry)
+{
+	int len;
+
+	if (!cfg.matching_only || !cfg.traddr)
+		return true;
+
+	len = space_strip_len(NVMF_TRADDR_SIZE, entry->traddr);
+	return !strncmp(cfg.traddr, entry->traddr, len);
+}
+
 static int connect_ctrls(struct nvmf_disc_rsp_page_hdr *log, int numrec)
 {
 	int i;
@@ -1110,6 +1129,9 @@ static int connect_ctrls(struct nvmf_disc_rsp_page_hdr *log, int numrec)
 	int ret = 0;
 
 	for (i = 0; i < numrec; i++) {
+		if (!should_connect(&log->entries[i]))
+			continue;
+
 		instance = connect_ctrl(&log->entries[i]);
 
 		/* clean success */
@@ -1343,6 +1365,7 @@ int fabrics_discover(const char *desc, int argc, char **argv, bool connect)
 		OPT_INT("queue-size",      'Q', &cfg.queue_size,      "number of io queue elements to use (default 128)"),
 		OPT_FLAG("persistent",     'p', &cfg.persistent,      "persistent discovery connection"),
 		OPT_FLAG("quiet",          'S', &cfg.quiet,           "suppress already connected errors"),
+		OPT_FLAG("matching",       'm', &cfg.matching_only,   "connect only records matching the traddr"),
 		OPT_END()
 	};
 
