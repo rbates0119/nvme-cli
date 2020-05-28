@@ -257,9 +257,11 @@
 #define WDC_FB_CA_LOG_BUF_LEN					0x80
 #define WDC_BD_CA_LOG_BUF_LEN					0x9C
 
-/* C0 EOL Status Log Page */
+/* C0 Log Page */
 #define WDC_NVME_GET_EOL_STATUS_LOG_OPCODE		0xC0
 #define WDC_NVME_EOL_STATUS_LOG_LEN				0x200
+#define WDC_NVME_SMART_CLOUD_ATTR_LOG_OPCODE	0xC0
+#define WDC_NVME_SMART_CLOUD_ATTR_LEN			0x200
 
 /* CB - FW Activate History Log Page */
 #define WDC_NVME_GET_FW_ACT_HISTORY_LOG_ID      0xCB
@@ -389,6 +391,39 @@ typedef enum
 	WDC_DE_TYPE_NONE                = 0x1000000,
 	WDC_DE_TYPE_ALL                 = 0xFFFFFFF,
 } WDC_DRIVE_ESSENTIAL_TYPE;
+
+typedef enum
+{
+    SCAO_PMUW					= 0,	// Physical media units written
+	SCAO_PMUR					= 16,	// Physical media units read
+	SCAO_BUNBR					= 32,	// Bad user nand blocks raw
+	SCAO_BUNBN					= 38,	// Bad user nand blocks normalized
+	SCAO_BSNBR					= 40,	// Bad system nand blocks raw
+	SCAO_BSNBN					= 46,	// Bad system nand blocks normalized
+	SCAO_XRC					= 48,	// XOR recovery count
+	SCAO_UREC					= 56,	// Uncorrectable read error count
+	SCAO_SEEC					= 64,	// Soft ecc error count
+	SCAO_EECE					= 72,	// End to end corrected errors
+	SCAO_EEDC					= 76,	// End to end detected errors
+	SCAO_SDPU					= 80,	// System data percent used
+	SCAO_RFSC					= 81,	// Refresh counts
+	SCAO_MNUDEC					= 88,	// Min User data erase counts
+	SCAO_MXUDEC					= 92,	// Max User data erase counts
+	SCAO_NTTE					= 96,	// Number of Thermal throttling events
+	SCAO_CTS					= 97,	// Current throttling status
+	SCAO_PCEC					= 104,	// PCIe correctable error count
+	SCAO_ICS					= 112,	// Incomplete shutdowns
+	SCAO_PFB					= 120,	// Percent free blocks
+	SCAO_CPH					= 128,	// Capacitor health
+	SCAO_UIO					= 136,	// Unaligned I/O
+	SCAO_SVN					= 144,	// Security Version Number
+	SCAO_NUSE					= 152,	// NUSE - Namespace utilization
+	SCAO_PSC					= 160,	// PLP staqrt count
+	SCAO_EEST					= 176,	// Endurance estimate
+	SCAO_LPV					= 494,	// Log page version
+	SCAO_LPG					= 496,	// Log page GUID
+} SMART_CLOUD_ATTRIBUTE_OFFSETS;
+
 
 typedef struct __attribute__((__packed__)) _WDC_DE_VU_FILE_META_DATA
 {
@@ -656,6 +691,15 @@ struct wdc_bd_ca_log_format {
 	__u8	reserved2;
 	__u8	raw_value[7];
 };
+
+struct wdc_c0_smart_cloud_attr_format_ {
+	__le64	pmuw;
+	__le64	pmur;
+	__u8	bunb;
+	__u8	reserved2;
+	__u8	raw_value[7];
+};
+
 
 struct __attribute__((__packed__)) wdc_ssd_ca_perf_stats {
 	__le64  nand_bytes_wr_lo;                       /* 0x00 - NAND Bytes Written lo             */
@@ -3668,6 +3712,144 @@ static int wdc_print_fw_act_history_log(struct wdc_fw_act_history_log_entry *fw_
 	return 0;
 }
 
+
+static void wdc_print_smart_cloud_attr_C0_normal(void *data)
+{
+//	SMART_CLOUD_ATTRIBUTE_OFFSETS offsets;
+
+	__u8 *log_data = (__u8*)data;
+
+	printf("  SMART Cloud Attributes :- \n");
+
+	printf("  Physical media units written			%.0Lf\n",
+			int128_to_double(&log_data[SCAO_PMUW]));
+	printf("  Physical media units Read			%.0Lf\n",
+			int128_to_double(&log_data[SCAO_PMUR]));
+	printf("  Bad user nand blocks - Raw			%"PRIu64"\n",
+			(uint64_t)le64_to_cpu(log_data[SCAO_BUNBR] & 0x0000FFFFFFFFFFFF));
+	printf("  Bad user nand blocks - Normalized		%d\n",
+			(__u16)log_data[SCAO_BUNBN]);
+	printf("  Bad system nand blocks - Raw			%"PRIu64"\n",
+			(uint64_t)le64_to_cpu(log_data[SCAO_BSNBR] & 0x0000FFFFFFFFFFFF));
+	printf("  Bad system nand blocks - Normalized		%d\n",
+			(__u16)log_data[SCAO_BSNBN]);
+	printf("  XOR recovery count				%"PRIu64"\n",
+			(uint64_t)le64_to_cpu(log_data[SCAO_XRC]));
+	printf("  Uncorrectable read error count		%"PRIu64"\n",
+			(uint64_t)le64_to_cpu(log_data[SCAO_UREC]));
+	printf("  Soft ecc error count				%"PRIu64"\n",
+			(uint64_t)le64_to_cpu(log_data[SCAO_SEEC]));
+	printf("  End to end corrected errors			%"PRIu32"\n",
+			(uint32_t)le32_to_cpu(log_data[SCAO_EECE]));
+	printf("  End to end detected errors			%"PRIu32"\n",
+			(uint32_t)le32_to_cpu(log_data[SCAO_EEDC]));
+	printf("  System data percent used			%d\n",
+			(__u8)log_data[SCAO_SDPU]);
+	printf("  Refresh counts				%"PRIu64"\n",
+			(uint64_t)(le64_to_cpu(log_data[SCAO_RFSC])& 0x00FFFFFFFFFFFFFF));
+	printf("  Min User data erase counts			%"PRIu32"\n",
+			(uint32_t)le32_to_cpu(log_data[SCAO_MNUDEC]));
+	printf("  Max User data erase counts			%"PRIu32"\n",
+			(uint32_t)le32_to_cpu(log_data[SCAO_MXUDEC]));
+	printf("  Number of Thermal throttling events		%d\n",
+			(__u8)log_data[SCAO_NTTE]);
+	printf("  Current throttling status		  	0x%x\n",
+			(__u8)log_data[SCAO_CTS]);
+	printf("  PCIe correctable error count			%"PRIu64"\n",
+			(uint64_t)le64_to_cpu(log_data[SCAO_PCEC]));
+	printf("  Incomplete shutdowns				%"PRIu32"\n",
+			(uint32_t)le32_to_cpu(log_data[SCAO_ICS]));
+	printf("  Percent free blocks				%d\n",
+			(__u8)log_data[SCAO_PFB]);
+	printf("  Capacitor health				%"PRIu16"\n",
+			(uint16_t)le16_to_cpu(log_data[SCAO_CPH]));
+	printf("  Unaligned I/O					%"PRIu64"\n",
+			(uint64_t)le64_to_cpu(log_data[SCAO_UIO]));
+	printf("  Security Version Number			%"PRIu64"\n",
+			(uint64_t)le64_to_cpu(log_data[SCAO_SVN]));
+	printf("  NUSE - Namespace utilization			%"PRIu64"\n",
+			(uint64_t)le64_to_cpu(log_data[SCAO_NUSE]));
+	printf("  PLP start count				%.0Lf\n",
+			int128_to_double(&log_data[SCAO_PSC]));
+	printf("  Endurance estimate				%.0Lf\n",
+			int128_to_double(&log_data[SCAO_EEST]));
+	printf("  Log page version				 %"PRIu16"\n",
+			(uint16_t)le16_to_cpu(log_data[SCAO_LPV]));
+
+	int i;
+	printf("  Log page GUID					0x");
+	for (i=0;i<16;i++) printf("%X", (__u8)log_data[SCAO_LPG+i]);
+	printf("\n\n");
+//	(__u16(data[SCAO_BUNBR]));
+
+
+/*
+	SCAO_BUNBR							= 0x20,	// Bad user nand blocks raw
+	SCAO_BUNBN							= 0x26,	// Bad user nand blocks normalized
+	SCAO_BSNBR							= 0x28,	// Bad system nand blocks raw
+	SCAO_BSNBN							= 0x2E,	// Bad system nand blocks normalized
+	SCAO_XRC							= 0x30,	// XOR recovery count
+	SCAO_UREC							= 0x38,	// Uncorrectable read error count
+	SCAO_SEEC							= 0x40,	// Soft ecc error count
+	SCAO_EECE							= 0x48,	// End to end corrected errors
+	SCAO_EEDC							= 0x4C,	// End to end detected errors
+	SCAO_SDPU							= 0x50,	// System data percent used
+	SCAO_RFSC							= 0x51,	// Refresh counts
+	SCAO_MNUDEC							= 0x58,	// Min User data erase counts
+	SCAO_MXUDEC							= 0x5C,	// Max User data erase counts
+	SCAO_NTTE							= 0x60,	// Number of Thermal throttling events
+	SCAO_CTS							= 0x61,	// Current throttling status
+	SCAO_PCEC							= 0x68,	// PCIe correctable error count
+	SCAO_ICS							= 0x70,	// Incomplete shutdowns
+	SCAO_PFB							= 0x78,	// Percent free blocks
+	SCAO_CPH							= 0x80,	// Capacitor health
+	SCAO_UIO							= 0x88,	// Unaligned I/O
+	SCAO_SVN							= 0x90,	// Security Version Number
+	SCAO_NUSE							= 0x98,	// NUSE - Namespace utilization
+	SCAO_PSC							= 0xA0,	// PLP start count
+	SCAO_EEST							= 0xB0,	// Endurance estimate
+	SCAO_LPV							= 0x1EE,// Log page version
+	SCAO_LPG							= 0x1F0,// Log page GUID
+	SCAO_SCALE							= 0x200,// Smart cloud attribute Log End
+
+	printf("  NAND Writes SLC (Bytes)		         %.0Lf\n",
+			int128_to_double(data->nand_write_slc));
+	printf("  NAND Program Failures			  	 %"PRIu32"\n",
+			(uint32_t)le32_to_cpu(data->nand_prog_failure));
+	printf("  NAND Erase Failures				 %"PRIu32"\n",
+			(uint32_t)le32_to_cpu(data->nand_erase_failure));
+	printf("  Bad Block Count			         %"PRIu32"\n",
+			(uint32_t)le32_to_cpu(data->bad_block_count));
+	printf("  NAND XOR/RAID Recovery Trigger Events		 %"PRIu64"\n",
+			le64_to_cpu(data->nand_rec_trigger_event));
+	printf("  E2E Error Counter                    		 %"PRIu64"\n",
+			le64_to_cpu(data->e2e_error_counter));
+	printf("  Number Successful NS Resizing Events		 %"PRIu64"\n",
+			le64_to_cpu(data->successful_ns_resize_event));
+*/
+
+}
+
+
+static int wdc_get_c0_log_page(int fd, char *format)
+{
+	int ret = 0;
+	__u8 *data;
+
+	if ((data = (__u8*) malloc(sizeof (__u8) * WDC_NVME_SMART_CLOUD_ATTR_LEN)) == NULL) {
+		fprintf(stderr, "ERROR : WDC : malloc : %s\n", strerror(errno));
+		return -1;
+	}
+
+	ret = nvme_get_log(fd, 0xFFFFFFFF, WDC_NVME_SMART_CLOUD_ATTR_LOG_OPCODE,
+			   false, WDC_NVME_SMART_CLOUD_ATTR_LEN, data);
+
+	wdc_print_smart_cloud_attr_C0_normal(data);
+
+	free(data);
+
+	return ret;
+}
 static int wdc_get_ca_log_page(int fd, char *format)
 {
 	int ret = 0;
@@ -3940,7 +4122,9 @@ static int wdc_vs_smart_add_log(int argc, char **argv, struct command *command,
 	if (fd < 0)
 		return fd;
 
-	capabilities = WDC_DRIVE_CAP_CA_LOG_PAGE;// wdc_get_drive_capabilities(fd);
+	wdc_get_c0_log_page(fd, cfg.output_format);
+
+	capabilities = wdc_get_drive_capabilities(fd);
 
 	if ((capabilities & WDC_DRIVE_CAP_SMART_LOG_MASK) == 0) {
 		fprintf(stderr, "ERROR : WDC: unsupported device for this command\n");
@@ -6002,5 +6186,4 @@ static int wdc_vs_drive_info(int argc, char **argv,
 	fprintf(stderr, "NVMe Status:%s(%x)\n", nvme_status_to_string(ret), ret);
 	return ret;
 }
-
 
