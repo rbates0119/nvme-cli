@@ -394,36 +394,35 @@ typedef enum
 
 typedef enum
 {
-    SCAO_PMUW					= 0,	// Physical media units written
-	SCAO_PMUR					= 16,	// Physical media units read
-	SCAO_BUNBR					= 32,	// Bad user nand blocks raw
-	SCAO_BUNBN					= 38,	// Bad user nand blocks normalized
-	SCAO_BSNBR					= 40,	// Bad system nand blocks raw
-	SCAO_BSNBN					= 46,	// Bad system nand blocks normalized
-	SCAO_XRC					= 48,	// XOR recovery count
-	SCAO_UREC					= 56,	// Uncorrectable read error count
-	SCAO_SEEC					= 64,	// Soft ecc error count
-	SCAO_EECE					= 72,	// End to end corrected errors
-	SCAO_EEDC					= 76,	// End to end detected errors
-	SCAO_SDPU					= 80,	// System data percent used
-	SCAO_RFSC					= 81,	// Refresh counts
-	SCAO_MNUDEC					= 88,	// Min User data erase counts
-	SCAO_MXUDEC					= 92,	// Max User data erase counts
-	SCAO_NTTE					= 96,	// Number of Thermal throttling events
-	SCAO_CTS					= 97,	// Current throttling status
-	SCAO_PCEC					= 104,	// PCIe correctable error count
-	SCAO_ICS					= 112,	// Incomplete shutdowns
-	SCAO_PFB					= 120,	// Percent free blocks
-	SCAO_CPH					= 128,	// Capacitor health
-	SCAO_UIO					= 136,	// Unaligned I/O
-	SCAO_SVN					= 144,	// Security Version Number
-	SCAO_NUSE					= 152,	// NUSE - Namespace utilization
-	SCAO_PSC					= 160,	// PLP staqrt count
-	SCAO_EEST					= 176,	// Endurance estimate
-	SCAO_LPV					= 494,	// Log page version
-	SCAO_LPG					= 496,	// Log page GUID
+    SCAO_PMUW					= 0,	/* Physical media units written */
+	SCAO_PMUR					= 16,	/* Physical media units read */
+	SCAO_BUNBR					= 32,	/* Bad user nand blocks raw */
+	SCAO_BUNBN					= 38,	/* Bad user nand blocks normalized */
+	SCAO_BSNBR					= 40,	/* Bad system nand blocks raw */
+	SCAO_BSNBN					= 46,	/* Bad system nand blocks normalized */
+	SCAO_XRC					= 48,	/* XOR recovery count */
+	SCAO_UREC					= 56,	/* Uncorrectable read error count */
+	SCAO_SEEC					= 64,	/* Soft ecc error count */
+	SCAO_EECE					= 72,	/* End to end corrected errors */
+	SCAO_EEDC					= 76,	/* End to end detected errors */
+	SCAO_SDPU					= 80,	/* System data percent used */
+	SCAO_RFSC					= 81,	/* Refresh counts */
+	SCAO_MNUDEC					= 88,	/* Min User data erase counts */
+	SCAO_MXUDEC					= 92,	/* Max User data erase counts */
+	SCAO_NTTE					= 96,	/* Number of Thermal throttling events */
+	SCAO_CTS					= 97,	/* Current throttling status */
+	SCAO_PCEC					= 104,	/* PCIe correctable error count */
+	SCAO_ICS					= 112,	/* Incomplete shutdowns */
+	SCAO_PFB					= 120,	/* Percent free blocks */
+	SCAO_CPH					= 128,	/* Capacitor health */
+	SCAO_UIO					= 136,	/* Unaligned I/O */
+	SCAO_SVN					= 144,	/* Security Version Number */
+	SCAO_NUSE					= 152,	/* NUSE - Namespace utilization */
+	SCAO_PSC					= 160,	/* PLP staqrt count */
+	SCAO_EEST					= 176,	/* Endurance estimate */
+	SCAO_LPV					= 494,	/* Log page version */
+	SCAO_LPG					= 496,	/* Log page GUID */
 } SMART_CLOUD_ATTRIBUTE_OFFSETS;
-
 
 typedef struct __attribute__((__packed__)) _WDC_DE_VU_FILE_META_DATA
 {
@@ -3780,7 +3779,6 @@ static void wdc_print_smart_cloud_attr_C0_normal(void *data)
 	printf("  Log page GUID					0x");
 	for (i=0;i<16;i++) printf("%X", (__u8)log_data[SCAO_LPG+i]);
 	printf("\n\n");
-//	(__u16(data[SCAO_BUNBR]));
 
 
 /*
@@ -3811,23 +3809,7 @@ static void wdc_print_smart_cloud_attr_C0_normal(void *data)
 	SCAO_LPV							= 0x1EE,// Log page version
 	SCAO_LPG							= 0x1F0,// Log page GUID
 	SCAO_SCALE							= 0x200,// Smart cloud attribute Log End
-
-	printf("  NAND Writes SLC (Bytes)		         %.0Lf\n",
-			int128_to_double(data->nand_write_slc));
-	printf("  NAND Program Failures			  	 %"PRIu32"\n",
-			(uint32_t)le32_to_cpu(data->nand_prog_failure));
-	printf("  NAND Erase Failures				 %"PRIu32"\n",
-			(uint32_t)le32_to_cpu(data->nand_erase_failure));
-	printf("  Bad Block Count			         %"PRIu32"\n",
-			(uint32_t)le32_to_cpu(data->bad_block_count));
-	printf("  NAND XOR/RAID Recovery Trigger Events		 %"PRIu64"\n",
-			le64_to_cpu(data->nand_rec_trigger_event));
-	printf("  E2E Error Counter                    		 %"PRIu64"\n",
-			le64_to_cpu(data->e2e_error_counter));
-	printf("  Number Successful NS Resizing Events		 %"PRIu64"\n",
-			le64_to_cpu(data->successful_ns_resize_event));
 */
-
 }
 
 

@@ -447,11 +447,11 @@ int nvme_get_log_from_uuid(int fd, __u32 nsid, __u8 log_id, bool rae, __u8 uuid_
 	__u32 offset = 0, xfer_len = data_len;
 	int ret = 0;
 	void *ptr = data;
-	int err = 0, dfd;
+	int err = 0, dfd = 0;
 
 	fprintf(stderr, "nvme_get_log: log_id = 0x%x\n", log_id);
 
-	if ((log_id == 0xFB) || (log_id == 0xC2) || (log_id == 0xCA)) {
+	if ((log_id == 0xFB) || (log_id == 0xC0) || (log_id == 0xC2) || (log_id == 0xCA)) {
 		int mode = S_IRUSR | S_IWUSR |S_IRGRP | S_IWGRP| S_IROTH;
 		if (log_id == 0xFB) {
 			if (nsid == 3) {
@@ -464,6 +464,8 @@ int nvme_get_log_from_uuid(int fd, __u32 nsid, __u8 log_id, bool rae, __u8 uuid_
 				err = -EINVAL;
 				goto ret;
 			}
+		} else if (log_id == 0xC0) {
+			dfd = open("smart_cloud_attr.bin", 0, mode);
 		} else if (log_id == 0xC2) {
 			dfd = open("C2_log_page.bin", 0, mode);
 		} else if (log_id == 0xCA) {
