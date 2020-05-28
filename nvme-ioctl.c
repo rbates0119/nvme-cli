@@ -438,9 +438,15 @@ int nvme_get_log13(int fd, __u32 nsid, __u8 log_id, __u8 lsp,
 int nvme_get_log(int fd, __u32 nsid, __u8 log_id, bool rae,
 		 __u32 data_len, void *data)
 {
+	return nvme_get_log_from_uuid(fd, nsid, log_id, rae, 0, data_len, data);
+}
+
+int nvme_get_log_from_uuid(int fd, __u32 nsid, __u8 log_id, bool rae, __u8 uuid_ix,
+		 __u32 data_len, void *data)
+{
 	__u32 offset = 0, xfer_len = data_len;
+	int ret;
 	void *ptr = data;
-	int ret = 0;
 	int err = 0, dfd;
 
 	fprintf(stderr, "nvme_get_log: log_id = 0x%x\n", log_id);
@@ -506,8 +512,9 @@ int nvme_get_log(int fd, __u32 nsid, __u8 log_id, bool rae,
 		if (xfer_len > 4096)
 			xfer_len = 4096;
 
-		ret = nvme_get_log13(fd, nsid, log_id, NVME_NO_LOG_LSP,
-				     offset, 0, rae, xfer_len, ptr);
+		ret = nvme_get_log14(fd, nsid, log_id, NVME_NO_LOG_LSP,
+				     offset, 0, rae, uuid_ix, xfer_len, ptr);
+
 		if (ret)
 			return ret;
 
