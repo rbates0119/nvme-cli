@@ -3743,6 +3743,7 @@ static int wdc_get_ca_log_page(int fd, char *format)
 	case WDC_NVME_SN640_DEV_ID_2:
 	case WDC_NVME_SN840_DEV_ID:
 	case WDC_NVME_SN840_DEV_ID_1:
+	case WDC_NVME_SN720_DEV_ID:
 
 		if (*cust_id == WDC_CUSTOMER_ID_0x1005) {
 
