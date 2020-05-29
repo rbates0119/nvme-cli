@@ -424,6 +424,18 @@ typedef enum
 	SCAO_LPG					= 496,	/* Log page GUID */
 } SMART_CLOUD_ATTRIBUTE_OFFSETS;
 
+typedef enum
+{
+    EOL_RBC					= 76,	/* Realloc Block Count */
+    EOL_ECCR				= 80,	/* ECC Rate */
+    EOL_WRA					= 84,	/* Write Amp */
+    EOL_PLR					= 88,	/* Percent Life Remaining */
+    EOL_RSVBC				= 92,	/* Reserved Block Count */
+    EOL_PFC					= 96,	/* Program Fail Count */
+    EOL_EFC					= 100,	/* Erase Fail Count */
+    EOL_RRER				= 108,	/* Raw Read Error Rate */
+} EOL_LOG_PAGE_C0_OFFSETS;
+
 typedef struct __attribute__((__packed__)) _WDC_DE_VU_FILE_META_DATA
 {
     __u8 fileName[WDC_DE_FILE_NAME_SIZE];
@@ -3779,54 +3791,135 @@ static void wdc_print_smart_cloud_attr_C0_normal(void *data)
 	printf("  Log page GUID					0x");
 	for (i=0;i<16;i++) printf("%X", (__u8)log_data[SCAO_LPG+i]);
 	printf("\n\n");
-
-
-/*
-	SCAO_BUNBR							= 0x20,	// Bad user nand blocks raw
-	SCAO_BUNBN							= 0x26,	// Bad user nand blocks normalized
-	SCAO_BSNBR							= 0x28,	// Bad system nand blocks raw
-	SCAO_BSNBN							= 0x2E,	// Bad system nand blocks normalized
-	SCAO_XRC							= 0x30,	// XOR recovery count
-	SCAO_UREC							= 0x38,	// Uncorrectable read error count
-	SCAO_SEEC							= 0x40,	// Soft ecc error count
-	SCAO_EECE							= 0x48,	// End to end corrected errors
-	SCAO_EEDC							= 0x4C,	// End to end detected errors
-	SCAO_SDPU							= 0x50,	// System data percent used
-	SCAO_RFSC							= 0x51,	// Refresh counts
-	SCAO_MNUDEC							= 0x58,	// Min User data erase counts
-	SCAO_MXUDEC							= 0x5C,	// Max User data erase counts
-	SCAO_NTTE							= 0x60,	// Number of Thermal throttling events
-	SCAO_CTS							= 0x61,	// Current throttling status
-	SCAO_PCEC							= 0x68,	// PCIe correctable error count
-	SCAO_ICS							= 0x70,	// Incomplete shutdowns
-	SCAO_PFB							= 0x78,	// Percent free blocks
-	SCAO_CPH							= 0x80,	// Capacitor health
-	SCAO_UIO							= 0x88,	// Unaligned I/O
-	SCAO_SVN							= 0x90,	// Security Version Number
-	SCAO_NUSE							= 0x98,	// NUSE - Namespace utilization
-	SCAO_PSC							= 0xA0,	// PLP start count
-	SCAO_EEST							= 0xB0,	// Endurance estimate
-	SCAO_LPV							= 0x1EE,// Log page version
-	SCAO_LPG							= 0x1F0,// Log page GUID
-	SCAO_SCALE							= 0x200,// Smart cloud attribute Log End
-*/
 }
 
+static void wdc_print_eol_c0_normal(void *data)
+{
+//	SMART_CLOUD_ATTRIBUTE_OFFSETS offsets;
 
-static int wdc_get_c0_log_page(int fd, char *format)
+	__u8 *log_data = (__u8*)data;
+
+	printf("  Enof of Life Log Page 0xC0 :- \n");
+
+	printf("  Realloc Block Count			%"PRIu32"\n",
+			(uint32_t)le32_to_cpu(log_data[EOL_RBC]));
+	printf("  ECC Rate				%"PRIu32"\n",
+			(uint32_t)le32_to_cpu(log_data[EOL_ECCR]));
+	printf("  Write Amp				%"PRIu32"\n",
+			(uint32_t)le32_to_cpu(log_data[EOL_WRA]));
+	printf("  Percent Life Remaining		%"PRIu32"\n",
+			(uint32_t)le32_to_cpu(log_data[EOL_PLR]));
+	printf("  Program Fail Count			%"PRIu32"\n",
+			(uint32_t)le32_to_cpu(log_data[EOL_PFC]));
+	printf("  Erase Fail Count			%"PRIu32"\n",
+			(uint32_t)le32_to_cpu(log_data[EOL_EFC]));
+	printf("  Raw Read Error Rate			%"PRIu32"\n",
+			(uint32_t)le32_to_cpu(log_data[EOL_RRER]));
+
+}
+
+void print_c0_log_page_dir(void *data)
+{
+	__u8 *log_data = (__u8*)data;
+	__u8 i = 0;
+
+	printf("  C0 Log Page Directory :- \n");
+
+	while (log_data[i] != 0) {
+
+		switch (log_data[i]) {
+			case NVME_LOG_ERROR:
+				printf(" 0x%X = NVMe Error Log Page", log_data[i]);
+				break;
+			case NVME_LOG_SMART:
+				printf(" 0x%X = NVMe Smart Log page", log_data[i]);
+				break;
+			case NVME_LOG_FW_SLOT:
+				printf(" 0x%X = NVMe Firmware Slot Log Page", log_data[i]);
+				break;
+			case NVME_LOG_CHANGED_NS:
+				printf(" 0x%X = NVMe Changed NS List Log Page", log_data[i]);
+				break;
+			case NVME_LOG_CMD_EFFECTS:
+				printf(" 0x%X = NVMe Commamd Effects Log Page", log_data[i]);
+				break;
+			case NVME_LOG_DEVICE_SELF_TEST:
+				printf(" 0x%X = NVMe Device Self Test Log Page", log_data[i]);
+				break;
+			case NVME_LOG_TELEMETRY_HOST:
+				printf(" 0x%X = NVMe Telemetry Host Initiated Log Page", log_data[i]);
+				break;
+			case NVME_LOG_TELEMETRY_CTRL:
+				printf(" 0x%X = NVMe Telemetry Controller Initiated Log Page", log_data[i]);
+				break;
+			case NVME_LOG_SANITIZE:
+				printf(" 0x%X = NVMe Sanitize Status Log Page", log_data[i]);
+				break;
+			case WDC_LOG_ID_C0:
+				printf(" 0x%X = NVMe WDC Vendor Unique Log Page", log_data[i]);
+				break;
+			case WDC_LOG_ID_C2:
+				printf(" 0x%X = NVMe WDC Vendor Unique Log Page", log_data[i]);
+				break;
+			case WDC_LOG_ID_C4:
+				printf(" 0x%X = NVMe WDC Vendor Unique Log Page", log_data[i]);
+				break;
+			case WDC_LOG_ID_C5:
+				printf(" 0x%X = NVMe WDC Vendor Unique Log Page", log_data[i]);
+				break;
+			case WDC_LOG_ID_C6:
+				printf(" 0x%X = NVMe WDC Vendor Unique Log Page", log_data[i]);
+				break;
+			case WDC_LOG_ID_CA:
+				printf(" 0x%X = NVMe WDC Vendor Unique Log Page", log_data[i]);
+				break;
+			case WDC_LOG_ID_CB:
+				printf(" 0x%X = NVMe WDC Vendor Unique Log Page", log_data[i]);
+				break;
+			case WDC_LOG_ID_FA:
+				printf(" 0x%X = NVMe WDC Vendor Unique Log Page", log_data[i]);
+				break;
+			default:
+				printf(" 0x%X = NVMe Unknown Log Page", log_data[i]);
+				break;
+
+		}
+
+		printf("\n");
+		i++;
+	}
+}
+
+static int wdc_get_c0_log_page(int fd, char *format, int uuid_index)
 {
 	int ret = 0;
 	__u8 *data;
 
-	if ((data = (__u8*) malloc(sizeof (__u8) * WDC_NVME_SMART_CLOUD_ATTR_LEN)) == NULL) {
-		fprintf(stderr, "ERROR : WDC : malloc : %s\n", strerror(errno));
-		return -1;
+	if (uuid_index == 1) {
+
+		if ((data = (__u8*) malloc(sizeof (__u8) * WDC_NVME_SMART_CLOUD_ATTR_LEN)) == NULL) {
+			fprintf(stderr, "ERROR : WDC : malloc : %s\n", strerror(errno));
+			return -1;
+		}
+
+		ret = nvme_get_log_from_uuid(fd, 0xFFFFFFFF, WDC_NVME_SMART_CLOUD_ATTR_LOG_OPCODE,
+				   false, uuid_index, WDC_NVME_SMART_CLOUD_ATTR_LEN, data);
+
+		wdc_print_eol_c0_normal(data);
+//		print_c0_log_page_dir(data);
+
+	} else {
+
+		if ((data = (__u8*) malloc(sizeof (__u8) * WDC_NVME_SMART_CLOUD_ATTR_LEN)) == NULL) {
+			fprintf(stderr, "ERROR : WDC : malloc : %s\n", strerror(errno));
+			return -1;
+		}
+
+		ret = nvme_get_log_from_uuid(fd, 0xFFFFFFFF, WDC_NVME_SMART_CLOUD_ATTR_LOG_OPCODE,
+				   false, uuid_index, WDC_NVME_SMART_CLOUD_ATTR_LEN, data);
+
+		wdc_print_smart_cloud_attr_C0_normal(data);
 	}
-
-	ret = nvme_get_log(fd, 0xFFFFFFFF, WDC_NVME_SMART_CLOUD_ATTR_LOG_OPCODE,
-			   false, WDC_NVME_SMART_CLOUD_ATTR_LEN, data);
-
-	wdc_print_smart_cloud_attr_C0_normal(data);
 
 	free(data);
 
@@ -4079,6 +4172,7 @@ static int wdc_vs_smart_add_log(int argc, char **argv, struct command *command,
 {
 	const char *desc = "Retrieve additional performance statistics.";
 	const char *interval = "Interval to read the statistics from [1, 15].";
+	const char *uuid_index = "UUID index";
 	int fd;
 	int ret = 0;
 	__u64 capabilities = 0;
@@ -4087,16 +4181,19 @@ static int wdc_vs_smart_add_log(int argc, char **argv, struct command *command,
 		uint8_t interval;
 		int   vendor_specific;
 		char *output_format;
+		__u8  uuid_index;
 	};
 
 	struct config cfg = {
 		.interval = 14,
 		.output_format = "normal",
+		.uuid_index   = 0,
 	};
 
 	OPT_ARGS(opts) = {
 		OPT_UINT("interval", 'i', &cfg.interval, interval),
 		OPT_FMT("output-format", 'o', &cfg.output_format, "Output Format: normal|json"),
+		OPT_BYTE("uuid-index",   'U', &cfg.uuid_index,   uuid_index),
 		OPT_END()
 	};
 
@@ -4104,7 +4201,7 @@ static int wdc_vs_smart_add_log(int argc, char **argv, struct command *command,
 	if (fd < 0)
 		return fd;
 
-	wdc_get_c0_log_page(fd, cfg.output_format);
+	wdc_get_c0_log_page(fd, cfg.output_format, cfg.uuid_index);
 
 	capabilities = wdc_get_drive_capabilities(fd);
 
