@@ -418,7 +418,7 @@ typedef enum
 	SCAO_UIO					= 136,	/* Unaligned I/O */
 	SCAO_SVN					= 144,	/* Security Version Number */
 	SCAO_NUSE					= 152,	/* NUSE - Namespace utilization */
-	SCAO_PSC					= 160,	/* PLP staqrt count */
+	SCAO_PSC					= 160,	/* PLP start count */
 	SCAO_EEST					= 176,	/* Endurance estimate */
 	SCAO_LPV					= 494,	/* Log page version */
 	SCAO_LPG					= 496,	/* Log page GUID */
