@@ -465,7 +465,9 @@ int nvme_get_log_from_uuid(int fd, __u32 nsid, __u8 log_id, bool rae, __u8 uuid_
 				goto ret;
 			}
 		} else if (log_id == 0xC0) {
-			dfd = open("smart_cloud_attr.bin", 0, mode);
+			if (uuid_ix == 0) dfd = open("smart_cloud_attr.bin", 0, mode);
+			else if (uuid_ix == 1) dfd = open("eol_c0.bin", 0, mode);
+			else dfd = open("fb_log_pages.bin", 0, mode);
 		} else if (log_id == 0xC2) {
 			dfd = open("C2_log_page.bin", 0, mode);
 		} else if (log_id == 0xCA) {
