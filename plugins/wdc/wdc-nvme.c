@@ -100,13 +100,14 @@
 #define WDC_DRIVE_CAP_LOG_PAGE_DIR          0x0000000000020000
 #define WDC_DRIVE_CAP_NS_RESIZE             0x0000000000040000
 #define WDC_DRIVE_CAP_INFO                  0x0000000000080000
+#define WDC_DRIVE_CAP_C0_LOG_PAGE			0x0000000000100000
 
 #define WDC_DRIVE_CAP_DRIVE_ESSENTIALS      0x0000000100000000
 #define WDC_DRIVE_CAP_DUI_DATA				0x0000000200000000
 #define WDC_SN730B_CAP_VUC_LOG				0x0000000400000000
 #define WDC_DRIVE_CAP_SN340_DUI				0x0000000800000000
 #define WDC_DRIVE_CAP_SMART_LOG_MASK	(WDC_DRIVE_CAP_C1_LOG_PAGE | WDC_DRIVE_CAP_CA_LOG_PAGE | \
-					 WDC_DRIVE_CAP_D0_LOG_PAGE)
+					 WDC_DRIVE_CAP_D0_LOG_PAGE | WDC_DRIVE_CAP_C0_LOG_PAGE)
 
 /* SN730 Get Log Capabilities */
 #define SN730_NVME_GET_LOG_OPCODE			0xc2
@@ -122,7 +123,8 @@
 #define SN730_LOG_CHUNK_SIZE				0x1000
 
 /* Customer ID's */
-#define WDC_CUSTOMER_ID_GENERIC				0x0001
+#define WDC_CUSTOMER_ID_GN					0x0001
+#define WDC_CUSTOMER_ID_GD					0x0101
 #define WDC_CUSTOMER_ID_0x1002				0x1002
 #define WDC_CUSTOMER_ID_0x1004				0x1004
 #define WDC_CUSTOMER_ID_0x1005				0x1005
@@ -423,6 +425,10 @@ typedef enum
 	SCAO_LPV					= 494,	/* Log page version */
 	SCAO_LPG					= 496,	/* Log page GUID */
 } SMART_CLOUD_ATTRIBUTE_OFFSETS;
+
+static __u8 scao_guid[16]    = { 0xAF, 0xD5, 0x14, 0xC9, 0x7C, 0x6F, 0x4F, 0x9C,
+								 0xA4, 0xF2, 0xBF, 0xEA, 0x28, 0x10, 0xAF, 0xC5 };
+
 
 typedef enum
 {
@@ -2737,7 +2743,18 @@ static void wdc_do_id_ctrl(__u8 *vs, struct json_object *root)
 	char vsn[24] = {0};
 	int base = 3072;
 	int vsn_start = 3081;
+/*
+	__u64 t1 = 0xffffffffffffffff;
+	uint64_t t2 = 0xffffffffffffffff;
 
+	printf("wdc sizeof __u64 = %ld\n", sizeof(t1));
+	printf("wdc sizeof uint64_t = %ld\n", sizeof(t2));
+	printf("wdc PRIu64 = %s\n", PRIu64);
+	printf("wdc t1 = PRIu64 %"PRIu64"\n", t1);
+	printf("wdc t1 = %llu\n", t1);
+	printf("wdc t2 = PRIu64 %"PRIu64"\n", t2);
+	printf("wdc t2 = %llu\n", t2);
+*/
 	memcpy(vsn, &vs[vsn_start - base], sizeof(vsn));
 	if (root)
 		json_object_add_value_string(root, "wdc vsn", strlen(vsn) > 1 ? vsn : "NULL");
@@ -3890,41 +3907,157 @@ void print_c0_log_page_dir(void *data)
 	}
 }
 
+static int wdc_print_c0_cloud_attr_log(void *data, int fmt)
+{
+	if (!data) {
+		fprintf(stderr, "ERROR : WDC : Invalid buffer to read 0xC0 log\n");
+		return -1;
+	}
+	switch (fmt) {
+	case NORMAL:
+		wdc_print_smart_cloud_attr_C0_normal(data);
+		break;
+	case JSON:
+//		wdc_print_fb_ca_log_json(data);
+		break;
+	}
+	return 0;
+}
+
+static int wdc_print_c0_eol_log(void *data, int fmt)
+{
+	if (!data) {
+		fprintf(stderr, "ERROR : WDC : Invalid buffer to read 0xC0 log\n");
+		return -1;
+	}
+	switch (fmt) {
+	case NORMAL:
+		wdc_print_eol_c0_normal(data);
+		break;
+	case JSON:
+//		wdc_print_fb_ca_log_json(data);
+		break;
+	}
+	return 0;
+}
+
 static int wdc_get_c0_log_page(int fd, char *format, int uuid_index)
 {
-	int ret = 0;
+	int ret = 1;
+	int fmt = -1;
+	int i = 0;
 	__u8 *data;
+	__u32 cust_id;
+	uint32_t read_device_id, read_vendor_id;
 
-	if (uuid_index == 1) {
+	if (!wdc_check_device(fd))
+		return -1;
+	fmt = validate_output_format(format);
+	if (fmt < 0) {
+		fprintf(stderr, "ERROR : WDC : invalid output format\n");
+		return fmt;
+	}
 
-		if ((data = (__u8*) malloc(sizeof (__u8) * WDC_NVME_SMART_CLOUD_ATTR_LEN)) == NULL) {
-			fprintf(stderr, "ERROR : WDC : malloc : %s\n", strerror(errno));
-			return -1;
+	/* verify the 0xC0 log page is supported */
+	if (wdc_nvme_check_supported_log_page(fd, WDC_NVME_GET_EOL_STATUS_LOG_OPCODE) == false) {
+		return 0;
+	}
+
+	if (!get_dev_mgment_cbs_data(fd, WDC_C2_CUSTOMER_ID_ID, (void*)&data)) {
+		fprintf(stderr, "%s: ERROR : WDC : 0xC2 Log Page entry ID 0x%x not found\n", __func__, WDC_C2_CUSTOMER_ID_ID);
+		return -1;
+	}
+
+	ret = wdc_get_pci_ids(&read_device_id, &read_vendor_id);
+
+	cust_id = WDC_CUSTOMER_ID_0x1004;    //cust_id = (__u32*)data;
+
+	printf("WDC: wdc_get_c0_log_page - cust_id = 0x%X, read_device_id = 0x%X\n", cust_id, read_device_id);
+
+	switch (read_device_id) {
+
+	case WDC_NVME_SN720_DEV_ID:
+	case WDC_NVME_SN640_DEV_ID:
+	case WDC_NVME_SN640_DEV_ID_1:
+	case WDC_NVME_SN640_DEV_ID_2:
+
+		if ((cust_id == WDC_CUSTOMER_ID_0x1004) || (cust_id == WDC_CUSTOMER_ID_0x1005)) {
+
+			if (uuid_index == 0)
+			{
+
+				if ((data = (__u8*) malloc(sizeof (__u8) * WDC_NVME_SMART_CLOUD_ATTR_LEN)) == NULL) {
+					fprintf(stderr, "ERROR : WDC : malloc : %s\n", strerror(errno));
+					return -1;
+				}
+
+				ret = nvme_get_log(fd, 0xFFFFFFFF, WDC_NVME_GET_EOL_STATUS_LOG_OPCODE,
+						   false, WDC_NVME_SMART_CLOUD_ATTR_LEN, data);
+
+				if (strcmp(format, "json"))
+					fprintf(stderr, "NVMe Status:%s(%x)\n", nvme_status_to_string(ret), ret);
+
+				if (ret == 0) {
+
+					for (i=0; i<16; i++) {
+						if (scao_guid[i] != data[SCAO_LPG + i])	{
+							ret = -1;
+							break;
+						}
+					}
+
+					if (ret == 0) {
+
+						/* parse the data */
+						wdc_print_c0_cloud_attr_log(data, fmt);
+						ret = 1;
+					}
+				} else {
+					fprintf(stderr, "ERROR : WDC : Unable to read C0 Log Page data\n");
+					ret = -1;
+				}
+
+			} else if (uuid_index == 1) {
+
+				if ((data = (__u8*) malloc(sizeof (__u8) * WDC_NVME_EOL_STATUS_LOG_LEN)) == NULL) {
+					fprintf(stderr, "ERROR : WDC : malloc : %s\n", strerror(errno));
+					return -1;
+				}
+
+				memset(data, 0, sizeof (__u8) * WDC_NVME_EOL_STATUS_LOG_LEN);
+				ret = nvme_get_log(fd, 0xFFFFFFFF, WDC_NVME_GET_EOL_STATUS_LOG_OPCODE,
+						   false, WDC_NVME_EOL_STATUS_LOG_LEN, data);
+
+
+				if (strcmp(format, "json"))
+					fprintf(stderr, "NVMe Status:%s(%x)\n", nvme_status_to_string(ret), ret);
+
+				if (ret == 0) {
+					/* parse the data */
+					wdc_print_c0_eol_log(data, fmt);
+					ret = 1;
+				} else {
+					fprintf(stderr, "ERROR : WDC : Unable to read C0 Log Page data\n");
+					ret = -1;
+				}
+
+				break;
+			} else {
+				return -1;
+			}
 		}
+		break;
+	default:
 
-		ret = nvme_get_log_from_uuid(fd, 0xFFFFFFFF, WDC_NVME_SMART_CLOUD_ATTR_LOG_OPCODE,
-				   false, uuid_index, WDC_NVME_SMART_CLOUD_ATTR_LEN, data);
+		return -1;
+		break;
 
-		wdc_print_eol_c0_normal(data);
-//		print_c0_log_page_dir(data);
-
-	} else {
-
-		if ((data = (__u8*) malloc(sizeof (__u8) * WDC_NVME_SMART_CLOUD_ATTR_LEN)) == NULL) {
-			fprintf(stderr, "ERROR : WDC : malloc : %s\n", strerror(errno));
-			return -1;
-		}
-
-		ret = nvme_get_log_from_uuid(fd, 0xFFFFFFFF, WDC_NVME_SMART_CLOUD_ATTR_LOG_OPCODE,
-				   false, uuid_index, WDC_NVME_SMART_CLOUD_ATTR_LEN, data);
-
-		wdc_print_smart_cloud_attr_C0_normal(data);
 	}
 
 	free(data);
-
 	return ret;
 }
+
 static int wdc_get_ca_log_page(int fd, char *format)
 {
 	int ret = 0;
@@ -4024,7 +4157,7 @@ static int wdc_get_ca_log_page(int fd, char *format)
 				fprintf(stderr, "ERROR : WDC : Unable to read CA Log Page data\n");
 				ret = -1;
 			}
-		} else if (*cust_id == WDC_CUSTOMER_ID_GENERIC) {
+		} else if ((*cust_id == WDC_CUSTOMER_ID_GN) || (*cust_id == WDC_CUSTOMER_ID_GN)) {
 
 			if ((data = (__u8*) malloc(sizeof (__u8) * WDC_BD_CA_LOG_BUF_LEN)) == NULL) {
 				fprintf(stderr, "ERROR : WDC : malloc : %s\n", strerror(errno));
@@ -4201,33 +4334,38 @@ static int wdc_vs_smart_add_log(int argc, char **argv, struct command *command,
 	if (fd < 0)
 		return fd;
 
-	wdc_get_c0_log_page(fd, cfg.output_format, cfg.uuid_index);
+	ret = wdc_get_c0_log_page(fd, cfg.output_format, cfg.uuid_index);
 
-	capabilities = wdc_get_drive_capabilities(fd);
+	if (ret != 1) {
 
-	if ((capabilities & WDC_DRIVE_CAP_SMART_LOG_MASK) == 0) {
-		fprintf(stderr, "ERROR : WDC: unsupported device for this command\n");
-		ret = -1;
-		goto out;
-	}
+		capabilities = WDC_DRIVE_CAP_SMART_LOG_MASK; //wdc_get_drive_capabilities(fd);
 
-	if ((capabilities & (WDC_DRIVE_CAP_CA_LOG_PAGE)) == (WDC_DRIVE_CAP_CA_LOG_PAGE)) {
-		/* Get the CA Log Page */
-		ret = wdc_get_ca_log_page(fd, cfg.output_format);
-		if (ret)
-			fprintf(stderr, "ERROR : WDC : Failure reading the CA Log Page, ret = %d\n", ret);
-	}
-	if ((capabilities & WDC_DRIVE_CAP_C1_LOG_PAGE) == WDC_DRIVE_CAP_C1_LOG_PAGE) {
-		/* Get the C1 Log Page */
-		ret = wdc_get_c1_log_page(fd, cfg.output_format, cfg.interval);
-		if (ret)
-			fprintf(stderr, "ERROR : WDC : Failure reading the C1 Log Page, ret = %d\n", ret);
-	}
-	if ((capabilities & WDC_DRIVE_CAP_D0_LOG_PAGE) == WDC_DRIVE_CAP_D0_LOG_PAGE) {
-		/* Get the D0 Log Page */
-		ret = wdc_get_d0_log_page(fd, cfg.output_format);
-		if (ret)
-			fprintf(stderr, "ERROR : WDC : Failure reading the D0 Log Page, ret = %d\n", ret);
+		if ((capabilities & WDC_DRIVE_CAP_SMART_LOG_MASK) == 0) {
+			fprintf(stderr, "ERROR : WDC: unsupported device for this command\n");
+			ret = -1;
+			goto out;
+		}
+
+		if ((capabilities & (WDC_DRIVE_CAP_CA_LOG_PAGE)) == (WDC_DRIVE_CAP_CA_LOG_PAGE)) {
+			/* Get the CA Log Page */
+			ret = wdc_get_ca_log_page(fd, cfg.output_format);
+			if (ret)
+				fprintf(stderr, "ERROR : WDC : Failure reading the CA Log Page, ret = %d\n", ret);
+		}
+		if ((capabilities & WDC_DRIVE_CAP_C1_LOG_PAGE) == WDC_DRIVE_CAP_C1_LOG_PAGE) {
+			/* Get the C1 Log Page */
+			ret = wdc_get_c1_log_page(fd, cfg.output_format, cfg.interval);
+			if (ret)
+				fprintf(stderr, "ERROR : WDC : Failure reading the C1 Log Page, ret = %d\n", ret);
+		}
+		if ((capabilities & WDC_DRIVE_CAP_D0_LOG_PAGE) == WDC_DRIVE_CAP_D0_LOG_PAGE) {
+			/* Get the D0 Log Page */
+			ret = wdc_get_d0_log_page(fd, cfg.output_format);
+			if (ret)
+				fprintf(stderr, "ERROR : WDC : Failure reading the D0 Log Page, ret = %d\n", ret);
+		}
+	} else {
+		ret = 0;
 	}
 out:
 	return ret;
