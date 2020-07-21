@@ -99,9 +99,9 @@ static void *__nvme_alloc(size_t len, bool *huge)
 	return NULL;
 }
 
-#ifdef LIBHUGETLBFS
 #define HUGE_MIN 0x80000
 
+#ifdef LIBHUGETLBFS
 void nvme_free(void *p, bool huge)
 {
 	if (huge)
@@ -2262,7 +2262,14 @@ static int fw_download(int argc, char **argv, struct command *cmd, struct plugin
 		goto close_fw_fd;
 	}
 
-	fw_buf = nvme_alloc(fw_size, &huge);
+	if (cfg.xfer == 0 || cfg.xfer % 4096)
+		cfg.xfer = 4096;
+
+	if (cfg.xfer < HUGE_MIN)
+		fw_buf = __nvme_alloc(fw_size, &huge);
+	else
+		fw_buf = nvme_alloc(fw_size, &huge);
+
 	if (!fw_buf) {
 		fprintf(stderr, "No memory for f/w size:%d\n", fw_size);
 		err = -ENOMEM;
@@ -2270,8 +2277,6 @@ static int fw_download(int argc, char **argv, struct command *cmd, struct plugin
 	}
 
 	buf = fw_buf;
-	if (cfg.xfer == 0 || cfg.xfer % 4096)
-		cfg.xfer = 4096;
 	if (read(fw_fd, fw_buf, fw_size) != ((ssize_t)(fw_size))) {
 		err = -errno;
 		fprintf(stderr, "read :%s :%s\n", cfg.fw, strerror(errno));
@@ -2923,12 +2928,21 @@ static int format(int argc, char **argv, struct command *cmd, struct plugin *plu
 		nvme_show_status(err);
 	else {
 		printf("Success formatting namespace:%x\n", cfg.namespace_id);
-		if (cfg.lbaf != prev_lbaf && ioctl(fd, BLKRRPART) < 0) {
-			fprintf(stderr, "failed to re-read partition table\n");
-			err = -errno;
-			goto close_fd;
+		if (cfg.lbaf != prev_lbaf){
+			if (S_ISCHR(nvme_stat.st_mode)) {
+				if(ioctl(fd, NVME_IOCTL_RESCAN) < 0){
+					fprintf(stderr, "failed to rescan namespaces\n");
+					err = -errno;
+					goto close_fd;
+				}
+			} else {
+				if(ioctl(fd, BLKRRPART) < 0) {
+					fprintf(stderr, "failed to re-read partition table\n");
+					err = -errno;
+					goto close_fd;
+				}
+			}
 		}
-
 		if (cfg.reset && S_ISCHR(nvme_stat.st_mode))
 			nvme_reset_controller(fd);
 	}

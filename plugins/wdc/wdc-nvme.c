@@ -19,6 +19,7 @@
  *   Author: Chaitanya Kulkarni <chaitanya.kulkarni@hgst.com>,
  *           Dong Ho <dong.ho@hgst.com>,
  *           Jeff Lien <jeff.lien@wdc.com>
+ *   	     Brandon Paupore <brandon.paupore@wdc.com>
  */
 #include <stdio.h>
 #include <string.h>
@@ -81,6 +82,8 @@
 #define WDC_NVME_SN730B_DEV_ID				0x3714
 #define WDC_NVME_SN730B_DEV_ID_1			0x3734
 #define WDC_NVME_SN340_DEV_ID				0x500d
+#define WDC_NVME_ZN345_DEV_ID				0x5010
+#define WDC_NVME_ZN345_DEV_ID_1 			0x5018
 
 #define WDC_DRIVE_CAP_CAP_DIAG				0x0000000000000001
 #define WDC_DRIVE_CAP_INTERNAL_LOG			0x0000000000000002
@@ -92,9 +95,9 @@
 #define WDC_DRIVE_CAP_CLEAR_PCIE			0x0000000000000080
 #define WDC_DRIVE_CAP_RESIZE				0x0000000000000100
 #define WDC_DRIVE_CAP_NAND_STATS			0x0000000000000200
-#define WDC_DRIVE_CAP_DRIVE_LOG				0x0000000000000400
-#define WDC_DRIVE_CAP_CRASH_DUMP			0x0000000000000800
-#define WDC_DRIVE_CAP_PFAIL_DUMP			0x0000000000001000
+#define WDC_DRIVE_CAP_DRIVE_LOG             0x0000000000000400
+#define WDC_DRIVE_CAP_CRASH_DUMP            0x0000000000000800
+#define WDC_DRIVE_CAP_PFAIL_DUMP            0x0000000000001000
 #define WDC_DRIVE_CAP_FW_ACTIVATE_HISTORY   0x0000000000002000
 #define WDC_DRIVE_CAP_CLEAR_FW_ACT_HISTORY  0x0000000000004000
 #define WDC_DRVIE_CAP_DISABLE_CTLR_TELE_LOG 0x0000000000008000
@@ -103,6 +106,8 @@
 #define WDC_DRIVE_CAP_NS_RESIZE             0x0000000000040000
 #define WDC_DRIVE_CAP_INFO                  0x0000000000080000
 #define WDC_DRIVE_CAP_C0_LOG_PAGE           0x0000000000100000
+#define WDC_DRIVE_CAP_TEMP_STATS            0x0000000000200000
+#define WDC_DRIVE_CAP_VUC_CLEAR_PCIE        0x0000000000400000
 
 #define WDC_DRIVE_CAP_DRIVE_ESSENTIALS      0x0000000100000000
 #define WDC_DRIVE_CAP_DUI_DATA				0x0000000200000000
@@ -110,7 +115,8 @@
 #define WDC_DRIVE_CAP_DUI    				0x0000000800000000
 #define WDC_DRIVE_CAP_SMART_LOG_MASK	(WDC_DRIVE_CAP_C0_LOG_PAGE | WDC_DRIVE_CAP_C1_LOG_PAGE | \
                                          WDC_DRIVE_CAP_CA_LOG_PAGE | WDC_DRIVE_CAP_D0_LOG_PAGE)
-
+#define WDC_DRIVE_CAP_CLEAR_PCIE_MASK       (WDC_DRIVE_CAP_CLEAR_PCIE | \
+                                             WDC_DRIVE_CAP_VUC_CLEAR_PCIE)
 /* SN730 Get Log Capabilities */
 #define SN730_NVME_GET_LOG_OPCODE			0xc2
 #define SN730_GET_FULL_LOG_LENGTH			0x00080009
@@ -294,9 +300,10 @@
 #define WDC_LOG_ID_FA                           0xFA
 
 /* Clear PCIe Correctable Errors */
-#define WDC_NVME_CLEAR_PCIE_CORR_OPCODE			WDC_NVME_CAP_DIAG_CMD_OPCODE
-#define WDC_NVME_CLEAR_PCIE_CORR_CMD			0x22
-#define WDC_NVME_CLEAR_PCIE_CORR_SUBCMD			0x04
+#define WDC_NVME_CLEAR_PCIE_CORR_OPCODE     WDC_NVME_CAP_DIAG_CMD_OPCODE
+#define WDC_NVME_CLEAR_PCIE_CORR_CMD        0x22
+#define WDC_NVME_CLEAR_PCIE_CORR_SUBCMD     0x04
+#define WDC_NVME_CLEAR_PCIE_CORR_OPCODE_VUC 0xD2
 
 /* Clear Assert Dump Status */
 #define WDC_NVME_CLEAR_ASSERT_DUMP_OPCODE		0xD8
@@ -567,6 +574,8 @@ static int wdc_log_page_directory(int argc, char **argv, struct command *command
 		struct plugin *plugin);
 static int wdc_do_drive_info(int fd, __u32 *result);
 static int wdc_vs_drive_info(int argc, char **argv, struct command *command,
+		struct plugin *plugin);
+static int wdc_vs_temperature_stats(int argc, char **argv, struct command *command,
 		struct plugin *plugin);
 
 /* Drive log data size */
@@ -1067,10 +1076,16 @@ static __u64 wdc_get_drive_capabilities(int fd) {
 			capabilities = WDC_DRIVE_CAP_DUI_DATA | WDC_DRIVE_CAP_NAND_STATS | WDC_DRIVE_CAP_NS_RESIZE;
 			break;
 		case WDC_NVME_SN730A_DEV_ID:
-			capabilities = WDC_DRIVE_CAP_DUI | WDC_DRIVE_CAP_NAND_STATS | WDC_DRIVE_CAP_INFO;
+			capabilities =  WDC_DRIVE_CAP_DUI | WDC_DRIVE_CAP_NAND_STATS | 
+					WDC_DRIVE_CAP_INFO | WDC_DRIVE_CAP_TEMP_STATS | WDC_DRIVE_CAP_VUC_CLEAR_PCIE;
 			break;
 		case WDC_NVME_SN340_DEV_ID:
 			capabilities = WDC_DRIVE_CAP_DUI;
+			break;
+		case WDC_NVME_ZN345_DEV_ID:
+		/* FALLTHRU */
+		case WDC_NVME_ZN345_DEV_ID_1:
+			capabilities = WDC_DRIVE_CAP_DUI_DATA;
 			break;
 		default:
 			capabilities = 0;
@@ -3238,119 +3253,112 @@ static void wdc_print_bd_ca_log_normal(void *data)
 {
 	struct wdc_bd_ca_log_format *bd_data = (struct wdc_bd_ca_log_format *)data;
 	__u64 *raw;
-	__u16 *word_raw;
+	__u16 *word_raw1, *word_raw2, *word_raw3;
 	__u32  *dword_raw;
 	__u8  *byte_raw;
 
 	if (bd_data->field_id == 0x00) {
 		raw = (__u64*)bd_data->raw_value;
-		printf("  CA Log Page values :- \n");
-		printf("  Program fail counts                 %20"PRIu64"\n",
-				le64_to_cpu(*raw & 0x00FFFFFFFFFFFFFF));
-		printf("  %% Remaining of allowable program fails               %3"PRIu8"\n",
-				bd_data->normalized_value);
+		printf("Additional Smart Log for NVME device:%s namespace-id:%x\n",
+			devicename, WDC_DE_GLOBAL_NSID);
+		printf("key                               normalized raw\n");
+        printf("program_fail_count              : %3"PRIu8"%%       %"PRIu64"\n",
+				bd_data->normalized_value, le64_to_cpu(*raw & 0x00FFFFFFFFFFFFFF));
 	} else {
 		goto invalid_id;
 	}
 	bd_data++;
 	if (bd_data->field_id == 0x01) {
 		raw = (__u64*)bd_data->raw_value;
-		printf("  Erase fail count                    %20"PRIu64"\n",
-				le64_to_cpu(*raw & 0x00FFFFFFFFFFFFFF));
-		printf("  %% Remaining of allowable erase fails                 %3"PRIu8"\n",
-				bd_data->normalized_value);
+		printf("erase_fail_count                : %3"PRIu8"%%       %"PRIu64"\n",
+				bd_data->normalized_value, le64_to_cpu(*raw & 0x00FFFFFFFFFFFFFF));
 	} else {
 		goto invalid_id;
 	}
 	bd_data++;
 	if (bd_data->field_id == 0x02) {
-		word_raw = (__u16*)bd_data->raw_value;
-		printf("  Min erase cycles                              %10"PRIu16"\n",
-				le16_to_cpu(*word_raw));
-		word_raw = (__u16*)&bd_data->raw_value[2];
-		printf("  Max erase cycles                              %10"PRIu16"\n",
-				le16_to_cpu(*word_raw));
-		word_raw = (__u16*)&bd_data->raw_value[4];
-		printf("  Ave erase cycles                              %10"PRIu16"\n",
-				le16_to_cpu(*word_raw));
-		printf("  Wear Leveling Normalized 		               %3"PRIu8"\n",
-				bd_data->normalized_value);
-
+		word_raw1 = (__u16*)bd_data->raw_value;
+		word_raw2 = (__u16*)&bd_data->raw_value[2];
+		word_raw3 = (__u16*)&bd_data->raw_value[4];
+		printf("wear_leveling                   : %3"PRIu8"%%       min: %"PRIu16", max: %"PRIu16", avg: %"PRIu16"\n",
+				bd_data->normalized_value,
+				le16_to_cpu(*word_raw1),
+				le16_to_cpu(*word_raw2),
+				le16_to_cpu(*word_raw3));
 	} else {
 		goto invalid_id;
 	}
 	bd_data++;
 	if (bd_data->field_id == 0x03) {
 		raw = (__u64*)bd_data->raw_value;
-		printf("  End to end error detection count    %20"PRIu64"\n",
-				le64_to_cpu(*raw & 0x00FFFFFFFFFFFFFF));
+		printf("end_to_end_error_detection_count: %3"PRIu8"%%       %"PRIu64"\n",
+				bd_data->normalized_value, le64_to_cpu(*raw & 0x00FFFFFFFFFFFFFF));
 	} else {
 		goto invalid_id;
 	}
 	bd_data++;
 	if (bd_data->field_id == 0x04) {
 		raw = (__u64*)bd_data->raw_value;
-		printf("  Crc error count                     %20"PRIu64"\n",
-				le64_to_cpu(*raw & 0x00FFFFFFFFFFFFFF));
+		printf("crc_error_count                 : %3"PRIu8"%%       %"PRIu64"\n",
+			   bd_data->normalized_value, le64_to_cpu(*raw & 0x00FFFFFFFFFFFFFF));
 	} else {
 		goto invalid_id;
 	}
 	bd_data++;
 	if (bd_data->field_id == 0x05) {
 		raw = (__u64*)bd_data->raw_value;
-		printf("  Timed workload media error              %20.3f\n",
-				safe_div_fp((*raw & 0x00FFFFFFFFFFFFFF), 1024.0));
+		printf("timed_workload_media_wear       : %3"PRIu8"%%       %-.3f%%\n",
+			   bd_data->normalized_value, 
+			   safe_div_fp((*raw & 0x00FFFFFFFFFFFFFF), 1024.0));
 	} else {
 		goto invalid_id;
 	}
 	bd_data++;
 	if (bd_data->field_id == 0x06) {
 		raw = (__u64*)bd_data->raw_value;
-		printf("  Timed workload host reads %%                          %3"PRIu64"\n",
-				le64_to_cpu(*raw & 0x00000000000000FF));
+		printf("timed_workload_host_reads       : %3"PRIu8"%%       %"PRIu64"%%\n",
+			   bd_data->normalized_value, le64_to_cpu(*raw & 0x00FFFFFFFFFFFFFF));
 	} else {
 		goto invalid_id;
 	}
 	bd_data++;
 	if (bd_data->field_id == 0x07) {
 		raw = (__u64*)bd_data->raw_value;
-		printf("  Timed workload timer                %20"PRIu64"\n",
-				le64_to_cpu(*raw & 0x00FFFFFFFFFFFFFF));
+		printf("timed_workload_timer            : %3"PRIu8"%%       %"PRIu64"\n",
+			   bd_data->normalized_value, le64_to_cpu(*raw & 0x00FFFFFFFFFFFFFF));
 	} else {
 		goto invalid_id;
 	}
 	bd_data++;
 	if (bd_data->field_id == 0x08) {
 		byte_raw = (__u8*)bd_data->raw_value;
-		printf("  Throttle status %%                             %10"PRIu16"\n",
-				*byte_raw);
 		dword_raw = (__u32*)&bd_data->raw_value[1];
-		printf("  Throttling event counter                      %10"PRIu16"\n",
-				le32_to_cpu(*dword_raw));
+		printf("thermal_throttle_status         : %3"PRIu8"%%       %"PRIu16"%%, cnt: %"PRIu16"\n",
+				bd_data->normalized_value, *byte_raw, le32_to_cpu(*dword_raw));
 	} else {
 		goto invalid_id;
 	}
 	bd_data++;
 	if (bd_data->field_id == 0x09) {
 		raw = (__u64*)bd_data->raw_value;
-		printf("  Retry buffer overflow count         %20"PRIu64"\n",
-				le64_to_cpu(*raw & 0x00FFFFFFFFFFFFFF));
+		printf("retry_buffer_overflow_count     : %3"PRIu8"%%       %"PRIu64"\n",
+			   bd_data->normalized_value, le64_to_cpu(*raw & 0x00FFFFFFFFFFFFFF));
 	} else {
 		goto invalid_id;
 	}
 	bd_data++;
 	if (bd_data->field_id == 0x0A) {
 		raw = (__u64*)bd_data->raw_value;
-		printf("  Pll lock loss count                 %20"PRIu64"\n",
-				le64_to_cpu(*raw & 0x00FFFFFFFFFFFFFF));
+		printf("pll_lock_loss_count             : %3"PRIu8"%%       %"PRIu64"\n",
+			   bd_data->normalized_value, le64_to_cpu(*raw & 0x00FFFFFFFFFFFFFF));
 	} else {
 		goto invalid_id;
 	}
 	bd_data++;
 	if (bd_data->field_id == 0x0B) {
 		raw = (__u64*)bd_data->raw_value;
-		printf("  Nand bytes written (32mb)           %20.0f\n",
-				safe_div_fp((*raw & 0x00FFFFFFFFFFFFFF), 0xFFFF));
+		printf("nand_bytes_written              : %3"PRIu8"%%       sectors: %.f\n",
+			   bd_data->normalized_value, safe_div_fp((*raw & 0x00FFFFFFFFFFFFFF), 0xFFFF));
 		raw = (__u64*)bd_data->raw_value;
 	} else {
 		goto invalid_id;
@@ -3358,8 +3366,8 @@ static void wdc_print_bd_ca_log_normal(void *data)
 	bd_data++;
 	if (bd_data->field_id == 0x0C) {
 		raw = (__u64*)bd_data->raw_value;
-		printf("  Host bytes written (32mb)           %20.0f\n",
-				safe_div_fp((*raw & 0x00FFFFFFFFFFFFFF), 0xFFFF));
+		printf("host_bytes_written              : %3"PRIu8"%%       sectors: %.f\n",
+			   bd_data->normalized_value, safe_div_fp((*raw & 0x00FFFFFFFFFFFFFF), 0xFFFF));
 		raw = (__u64*)bd_data->raw_value;
 	} else {
 		goto invalid_id;
@@ -3387,9 +3395,9 @@ static void wdc_print_bd_ca_log_json(void *data)
 	root = json_create_object();
 	if (bd_data->field_id == 0x00) {
 		raw = (__u64*)bd_data->raw_value;
-		json_object_add_value_int(root, "Program fail counts",
+		json_object_add_value_int(root, "program_fail_count",
 				le64_to_cpu(*raw & 0x00FFFFFFFFFFFFFF));
-		json_object_add_value_int(root, "% Remaining of allowable program fails",
+		json_object_add_value_int(root, "normalized",
 				bd_data->normalized_value);
 	} else {
 		goto invalid_id;
@@ -3397,9 +3405,9 @@ static void wdc_print_bd_ca_log_json(void *data)
 	bd_data++;
 	if (bd_data->field_id == 0x01) {
 		raw = (__u64*)bd_data->raw_value;
-		json_object_add_value_int(root, "Erase fail count",
+		json_object_add_value_int(root, "erase_fail_count",
 				le64_to_cpu(*raw & 0x00FFFFFFFFFFFFFF));
-		json_object_add_value_int(root, "% Remaining of allowable erase fails",
+		json_object_add_value_int(root, "normalized",
 				bd_data->normalized_value);
 	} else {
 		goto invalid_id;
@@ -3407,19 +3415,19 @@ static void wdc_print_bd_ca_log_json(void *data)
 	bd_data++;
 	if (bd_data->field_id == 0x02) {
 		word_raw = (__u16*)bd_data->raw_value;
-		json_object_add_value_int(root, "Min erase cycles", le16_to_cpu(*word_raw));
+		json_object_add_value_int(root, "min", le16_to_cpu(*word_raw));
 		word_raw = (__u16*)&bd_data->raw_value[2];
-		json_object_add_value_int(root, "Max erase cycles", le16_to_cpu(*word_raw));
+		json_object_add_value_int(root, "max", le16_to_cpu(*word_raw));
 		word_raw = (__u16*)&bd_data->raw_value[4];
-		json_object_add_value_int(root, "Ave erase cycles", le16_to_cpu(*word_raw));
-		json_object_add_value_int(root, "Wear Leveling Normalized",	bd_data->normalized_value);
+		json_object_add_value_int(root, "avg", le16_to_cpu(*word_raw));
+		json_object_add_value_int(root, "wear_leveling-normalized",	bd_data->normalized_value);
 	} else {
 		goto invalid_id;
 	}
 	bd_data++;
 	if (bd_data->field_id == 0x03) {
 		raw = (__u64*)bd_data->raw_value;
-		json_object_add_value_int(root, "End to end error detection count",
+		json_object_add_value_int(root, "end_to_end_error_detection_count",
 				le64_to_cpu(*raw & 0x00FFFFFFFFFFFFFF));
 	} else {
 		goto invalid_id;
@@ -3427,7 +3435,7 @@ static void wdc_print_bd_ca_log_json(void *data)
 	bd_data++;
 	if (bd_data->field_id == 0x04) {
 		raw = (__u64*)bd_data->raw_value;
-		json_object_add_value_int(root, "Crc error count",
+		json_object_add_value_int(root, "crc_error_count",
 				le64_to_cpu(*raw & 0x00FFFFFFFFFFFFFF));
 	} else {
 		goto invalid_id;
@@ -3435,7 +3443,7 @@ static void wdc_print_bd_ca_log_json(void *data)
 	bd_data++;
 	if (bd_data->field_id == 0x05) {
 		raw = (__u64*)bd_data->raw_value;
-		json_object_add_value_float(root, "Timed workload media error",
+		json_object_add_value_float(root, "timed_workload_media_wear",
 				safe_div_fp((*raw & 0x00FFFFFFFFFFFFFF), 1024.0));
 	} else {
 		goto invalid_id;
@@ -3443,7 +3451,7 @@ static void wdc_print_bd_ca_log_json(void *data)
 	bd_data++;
 	if (bd_data->field_id == 0x06) {
 		raw = (__u64*)bd_data->raw_value;
-		json_object_add_value_int(root, "Timed workload host reads %",
+		json_object_add_value_int(root, "timed_workload_host_reads",
 				le64_to_cpu(*raw & 0x00000000000000FF));
 	} else {
 		goto invalid_id;
@@ -3451,7 +3459,7 @@ static void wdc_print_bd_ca_log_json(void *data)
 	bd_data++;
 	if (bd_data->field_id == 0x07) {
 		raw = (__u64*)bd_data->raw_value;
-		json_object_add_value_int(root, "Timed workload timer",
+		json_object_add_value_int(root, "timed_workload_timer",
 				le64_to_cpu(*raw & 0x00FFFFFFFFFFFFFF));
 	} else {
 		goto invalid_id;
@@ -3459,16 +3467,16 @@ static void wdc_print_bd_ca_log_json(void *data)
 	bd_data++;
 	if (bd_data->field_id == 0x08) {
 		byte_raw = (__u8*)bd_data->raw_value;
-		json_object_add_value_int(root, "Throttle status %", *byte_raw);
+		json_object_add_value_int(root, "thermal_throttle_status", *byte_raw);
 		dword_raw = (__u32*)&bd_data->raw_value[1];
-		json_object_add_value_int(root, "Throttling event counter",	le32_to_cpu(*dword_raw));
+		json_object_add_value_int(root, "cnt",	le32_to_cpu(*dword_raw));
 	} else {
 		goto invalid_id;
 	}
 	bd_data++;
 	if (bd_data->field_id == 0x09) {
 		raw = (__u64*)bd_data->raw_value;
-		json_object_add_value_int(root, "Retry buffer overflow count",
+		json_object_add_value_int(root, "retry_buffer_overflow_count",
 				le64_to_cpu(*raw & 0x00FFFFFFFFFFFFFF));
 	} else {
 		goto invalid_id;
@@ -3476,7 +3484,7 @@ static void wdc_print_bd_ca_log_json(void *data)
 	bd_data++;
 	if (bd_data->field_id == 0x0A) {
 		raw = (__u64*)bd_data->raw_value;
-		json_object_add_value_int(root, "Pll lock loss count",
+		json_object_add_value_int(root, "pll_lock_loss_count",
 				le64_to_cpu(*raw & 0x00FFFFFFFFFFFFFF));
 	} else {
 		goto invalid_id;
@@ -3484,7 +3492,7 @@ static void wdc_print_bd_ca_log_json(void *data)
 	bd_data++;
 	if (bd_data->field_id == 0x0B) {
 		raw = (__u64*)bd_data->raw_value;
-		json_object_add_value_float(root, "Nand bytes written (32mb)",
+		json_object_add_value_float(root, "nand_bytes_written",
 				safe_div_fp((*raw & 0x00FFFFFFFFFFFFFF), 0xFFFF));
 	} else {
 		goto invalid_id;
@@ -3492,7 +3500,7 @@ static void wdc_print_bd_ca_log_json(void *data)
 	bd_data++;
 	if (bd_data->field_id == 0x0C) {
 		raw = (__u64*)bd_data->raw_value;
-		json_object_add_value_float(root, "Host bytes written (32mb)",
+		json_object_add_value_float(root, "host_bytes_written",
 				safe_div_fp((*raw & 0x00FFFFFFFFFFFFFF), 0xFFFF));
 		raw = (__u64*)bd_data->raw_value;
 	} else {
@@ -4540,16 +4548,20 @@ static int wdc_clear_pcie_correctable_errors(int argc, char **argv, struct comma
 	}
 
 	capabilities = wdc_get_drive_capabilities(fd);
-	if ((capabilities & WDC_DRIVE_CAP_CLEAR_PCIE) == 0) {
+	if ((capabilities & WDC_DRIVE_CAP_CLEAR_PCIE_MASK) == 0) {
 		fprintf(stderr, "ERROR : WDC: unsupported device for this command\n");
 		ret = -1;
 		goto out;
 	}
-
+        
 	memset(&admin_cmd, 0, sizeof (admin_cmd));
-	admin_cmd.opcode = WDC_NVME_CLEAR_PCIE_CORR_OPCODE;
-	admin_cmd.cdw12 = ((WDC_NVME_CLEAR_PCIE_CORR_SUBCMD << WDC_NVME_SUBCMD_SHIFT) |
-			WDC_NVME_CLEAR_PCIE_CORR_CMD);
+	if (capabilities & WDC_DRIVE_CAP_CLEAR_PCIE) {
+		admin_cmd.opcode = WDC_NVME_CLEAR_PCIE_CORR_OPCODE;
+		admin_cmd.cdw12 = ((WDC_NVME_CLEAR_PCIE_CORR_SUBCMD << WDC_NVME_SUBCMD_SHIFT) |
+				WDC_NVME_CLEAR_PCIE_CORR_CMD);
+	}
+	else if (capabilities & WDC_DRIVE_CAP_VUC_CLEAR_PCIE)
+		admin_cmd.opcode = WDC_NVME_CLEAR_PCIE_CORR_OPCODE_VUC;
 
 	ret = nvme_submit_admin_passthru(fd, &admin_cmd);
 	fprintf(stderr, "NVMe Status:%s(%x)\n", nvme_status_to_string(ret), ret);
@@ -6536,5 +6548,142 @@ static int wdc_vs_drive_info(int argc, char **argv,
 	fprintf(stderr, "NVMe Status:%s(%x)\n", nvme_status_to_string(ret), ret);
 	return ret;
 }
+static int wdc_vs_temperature_stats(int argc, char **argv,
+		struct command *command, struct plugin *plugin)
+{
+	const char *desc = "Send a vs-temperature-stats command.";
+	struct nvme_smart_log smart_log;
+	struct nvme_id_ctrl id_ctrl;
+	uint64_t capabilities = 0;
+    	__u32 hctm_tmt;
+	int fd, ret;
 
+	OPT_ARGS(opts) = {
+		OPT_END()
+	};
 
+	fd = parse_and_open(argc, argv, desc, opts);
+	if (fd < 0)
+		return fd;
+
+	/* check if command is supported */
+	wdc_check_device(fd);
+	capabilities = wdc_get_drive_capabilities(fd);
+	if ((capabilities & WDC_DRIVE_CAP_TEMP_STATS) != WDC_DRIVE_CAP_TEMP_STATS) {
+		fprintf(stderr, "ERROR : WDC: unsupported device for this command\n");
+		return -1;
+	} 
+
+    	/* get the temperature stats or report errors */
+	ret = nvme_identify_ctrl(fd, &id_ctrl);
+   	if (ret != 0)
+		goto END;
+	ret = nvme_smart_log(fd, NVME_NSID_ALL, &smart_log);
+    	if (ret != 0) 
+    		goto END;
+
+    	/* print the temperature stats */
+    	printf("Temperature Stats for NVME device:%s namespace-id:%x\n",
+            	devicename, WDC_DE_GLOBAL_NSID);
+
+    	/* convert from Kelvin to degrees Celsius */
+	int temperature = ((smart_log.temperature[1] << 8) | smart_log.temperature[0]) - 273;
+	printf("Current Composite Temperature           : %d °C\n", temperature);
+    	printf("WCTEMP                                  : %"PRIu16" °C\n", id_ctrl.wctemp - 273);
+	printf("CCTEMP                                  : %"PRIu16" °C\n",  id_ctrl.cctemp - 273);
+    	printf("DITT support                            : 0\n");
+    	printf("HCTM support                            : %"PRIu16"\n", id_ctrl.hctma);
+
+	/* retrieve HCTM Thermal Management Temperatures */
+    	nvme_get_feature(fd, 0, 0x10, 0, 0, 0, 0, &hctm_tmt);
+    	temperature = ((hctm_tmt >> 16) & 0xffff) ? ((hctm_tmt >> 16) & 0xffff) - 273 : 0;	
+	printf("HCTM Light (TMT1)                       : %"PRIu16" °C\n", temperature);
+    	printf("TMT1 Transition Counter                 : %"PRIu32"\n", smart_log.thm_temp1_trans_count);
+	printf("TMT1 Total Time                         : %"PRIu32"\n", smart_log.thm_temp1_total_time);
+
+    	temperature = (hctm_tmt & 0xffff) ? (hctm_tmt & 0xffff) - 273 : 0;	
+	printf("HCTM Heavy (TMT2)                       : %"PRIu16" °C\n", temperature);
+    	printf("TMT2 Transition Counter                 : %"PRIu32"\n", smart_log.thm_temp2_trans_count);
+    	printf("TMT2 Total Time                         : %"PRIu32"\n", smart_log.thm_temp2_total_time);
+    	printf("Thermal Shutdown Threshold              : 95 °C\n");	
+       
+    	END:
+	fprintf(stderr, "NVMe Status:%s(%x)\n", nvme_status_to_string(ret), ret);
+	return ret;
+}
+static int wdc_capabilities(int argc, char **argv, 
+        struct command *command, struct plugin *plugin) 
+{
+    const char *desc = "Send a capabilities command.";
+    uint64_t capabilities = 0;
+    int fd;
+
+    OPT_ARGS(opts) = 
+    {
+        OPT_END()
+    };
+
+    fd = parse_and_open(argc, argv, desc, opts);
+    if (fd < 0)
+        return fd;
+
+    /* get capabilities */
+    wdc_check_device(fd);
+    capabilities = wdc_get_drive_capabilities(fd);
+
+    /* print command and supported status */
+    printf("WDC Plugin Capabilities for NVME device:%s\n", devicename);
+    printf("cap-diag                      : %s\n", 
+            capabilities & WDC_DRIVE_CAP_CAP_DIAG ? "Supported" : "Not Supported");
+    printf("drive-log                     : %s\n", 
+            capabilities & WDC_DRIVE_CAP_DRIVE_LOG ? "Supported" : "Not Supported");
+    printf("get-crash-dump                : %s\n", 
+            capabilities & WDC_DRIVE_CAP_CRASH_DUMP ? "Supported" : "Not Supported");
+    printf("get-pfail-dump                : %s\n", 
+            capabilities & WDC_DRIVE_CAP_PFAIL_DUMP ? "Supported" : "Not Supported");
+    printf("id-ctrl                       : Supported\n");
+    printf("purge                         : Supported\n");
+    printf("purge-monitor                 : Supported\n");
+    printf("vs-internal-log               : %s\n", 
+            capabilities & WDC_DRIVE_CAP_INTERNAL_LOG ? "Supported" : "Not Supported");
+    printf("vs-nand-stats                 : %s\n", 
+            capabilities & WDC_DRIVE_CAP_NAND_STATS ? "Supported" : "Not Supported");
+    printf("vs-smart-add-log              : %s\n", 
+            capabilities & WDC_DRIVE_CAP_SMART_LOG_MASK ? "Supported" : "Not Supported");
+    printf("--C0 Log Page                 : %s\n",
+            capabilities & WDC_DRIVE_CAP_C0_LOG_PAGE ? "Supported" : "Not Supported");
+    printf("--C1 Log Page                 : %s\n",
+            capabilities & WDC_DRIVE_CAP_C1_LOG_PAGE ? "Supported" : "Not Supported");
+    printf("--CA Log Page                 : %s\n",
+            capabilities & WDC_DRIVE_CAP_CA_LOG_PAGE ? "Supported" : "Not Supported");
+    printf("--D0 Log Page                 : %s\n",
+            capabilities & WDC_DRIVE_CAP_D0_LOG_PAGE ? "Supported" : "Not Supported");
+    printf("clear-pcie-correctable-errors : %s\n", 
+            capabilities & WDC_DRIVE_CAP_CLEAR_PCIE_MASK ? "Supported" : "Not Supported");
+    printf("drive-essentials              : %s\n", 
+            capabilities & WDC_DRIVE_CAP_DRIVE_ESSENTIALS ? "Supported" : "Not Supported");
+    printf("get-drive-status              : %s\n", 
+            capabilities & WDC_DRIVE_CAP_DRIVE_STATUS ? "Supported" : "Not Supported");
+    printf("clear-assert-dump             : %s\n", 
+            capabilities & WDC_DRIVE_CAP_CLEAR_ASSERT ? "Supported" : "Not Supported");
+    printf("drive-resize                  : %s\n", 
+            capabilities & WDC_DRIVE_CAP_RESIZE ? "Supported" : "Not Supported");
+    printf("vs-fw-activate-history        : %s\n", 
+            capabilities & WDC_DRIVE_CAP_FW_ACTIVATE_HISTORY ? "Supported" : "Not Supported");
+    printf("clear-fw-activate-history     : %s\n", 
+            capabilities & WDC_DRIVE_CAP_CLEAR_FW_ACT_HISTORY ? "Supported" : "Not Supported");
+    printf("vs-telemetry-controller-option: %s\n", 
+            capabilities & WDC_DRVIE_CAP_DISABLE_CTLR_TELE_LOG ? "Supported" : "Not Supported");
+    printf("vs-error-reason-identifier    : %s\n", 
+            capabilities & WDC_DRIVE_CAP_REASON_ID ? "Supported" : "Not Supported");
+    printf("log-page-directory            : %s\n", 
+            capabilities & WDC_DRIVE_CAP_LOG_PAGE_DIR ? "Supported" : "Not Supported");
+    printf("namespace-resize              : %s\n", 
+            capabilities & WDC_DRIVE_CAP_NS_RESIZE ? "Supported" : "Not Supported");
+    printf("vs-drive-info                 : %s\n", 
+            capabilities & WDC_DRIVE_CAP_INFO ? "Supported" : "Not Supported");
+    printf("vs-temperature-stats          : %s\n", 
+            capabilities & WDC_DRIVE_CAP_TEMP_STATS ? "Supported" : "Not Supported");
+    printf("capabilities                  : Supported\n");
+    return 0;
+}

@@ -14,7 +14,7 @@
 #define CREATE_CMD
 #include "zns.h"
 
-static const char *namespace_id = "Namespace identify to use";
+static const char *namespace_id = "Namespace identifier to use";
 
 static int id_ctrl(int argc, char **argv, struct command *cmd, struct plugin *plugin)
 {
@@ -132,7 +132,6 @@ static int __zns_mgmt_send(int fd, __u32 namespace_id, __u64 zslba,
 
 	err = nvme_zns_mgmt_send(fd, namespace_id, zslba, select_all, zsa,
 			data_len, buf);
-close_fd:
 	close(fd);
 	return err;
 }
@@ -162,16 +161,16 @@ static int zns_mgmt_send(int argc, char **argv, struct command *cmd, struct plug
 		OPT_END()
 	};
 
-	err = asprintf(&command, "%s-%s", plugin->name, cmd->name);
-	if (err < 0)
-		return errno;
-
 	err = fd = parse_and_open(argc, argv, desc, opts);
 	if (fd < 0)
-		goto free;
+		return errno;
 
-	if (!namespace_id) {
-		err = namespace_id = nvme_get_nsid(fd);
+	err = asprintf(&command, "%s-%s", plugin->name, cmd->name);
+	if (err < 0)
+		goto close_fd;
+
+	if (!cfg.namespace_id) {
+		err = cfg.namespace_id = nvme_get_nsid(fd);
 		if (err < 0) {
 			perror("get-namespace-id");
 			goto free;
@@ -187,6 +186,8 @@ static int zns_mgmt_send(int argc, char **argv, struct command *cmd, struct plug
 		nvme_show_status(err);
 free:
 	free(command);
+close_fd:
+	close(fd);
 	return err;
 }
 
@@ -265,15 +266,14 @@ static int zone_mgmt_send(int argc, char **argv, struct command *cmd, struct plu
 		goto close_fd;
 	}
 
-	if (cfg.zsa == NVME_ZNS_ZSA_SET_DESC_EXT){
-		if(!cfg.data_len){
+	if (cfg.zsa == NVME_ZNS_ZSA_SET_DESC_EXT) {
+		if(!cfg.data_len) {
 			cfg.data_len = get_zdes_bytes(fd, cfg.namespace_id);
-			if (cfg.data_len == 0){
+			if (cfg.data_len == 0) {
 				fprintf(stderr, 
 				"Zone Descriptor Extensions are not supported\n");
 				goto close_fd;
-			}
-			else if (cfg.data_len < 0) {
+			} else if (cfg.data_len < 0) {
 				err = cfg.data_len;
 				goto close_fd;
 			}
@@ -297,9 +297,8 @@ static int zone_mgmt_send(int argc, char **argv, struct command *cmd, struct plu
 			perror("read");
 			goto close_ffd;
 		}
-	}
-	else{
-		if (strlen(cfg.file) || cfg.data_len){
+	} else {
+		if (cfg.file || cfg.data_len) {
 			fprintf(stderr, 
 			"data, data_len only valid with set extended descriptor\n");
 			err = -EINVAL;
@@ -370,7 +369,6 @@ static int set_zone_desc(int argc, char **argv, struct command *cmd, struct plug
 	int fd, ffd = STDIN_FILENO, err;
 	void *buf = NULL;
 	__u32 data_len;
-	uint8_t lbaf;
 
 	struct config {
 		__u64	zslba;
@@ -451,6 +449,11 @@ close_fd:
 static int zone_mgmt_recv(int argc, char **argv, struct command *cmd, struct plugin *plugin)
 {
 	const char *desc = "Zone Management Receive";
+	const char *zslba = "starting LBA of the zone";
+	const char *zra = "Zone Receive Action";
+	const char *zrasf = "Zone Receive Action Specific Field(Reporting Options)";
+	const char *partial = "Zone Receive Action Specific Features(Partial Report)";	
+	const char *data_len = "length of data in bytes";
 
 	enum nvme_print_flags flags;
 	int fd, err = -1;
@@ -462,7 +465,7 @@ static int zone_mgmt_recv(int argc, char **argv, struct command *cmd, struct plu
 		__u32  namespace_id;
 		__u16  zra;
 		__u16  zrasf;
-		bool   zrass;
+		bool   partial;
 		__u32  data_len;
 	};
 
@@ -470,8 +473,14 @@ static int zone_mgmt_recv(int argc, char **argv, struct command *cmd, struct plu
 		.output_format = "normal",
 	};
 
-
 	OPT_ARGS(opts) = {
+		OPT_FMT("output-format",  'o', &cfg.output_format,  output_format),
+		OPT_UINT("namespace-id",  'n', &cfg.namespace_id,   namespace_id),
+		OPT_SUFFIX("start-lba",   's', &cfg.zslba,          zslba),
+		OPT_SHRT("zra",           'z', &cfg.zra,            zra),
+		OPT_SHRT("zrasf",         'S', &cfg.zrasf,          zrasf),
+		OPT_FLAG("partial",       'p', &cfg.partial,        partial),
+		OPT_UINT("data-len",      'l', &cfg.data_len,       data_len),
 		OPT_END()
 	};
 
@@ -500,7 +509,7 @@ static int zone_mgmt_recv(int argc, char **argv, struct command *cmd, struct plu
 	}
 
 	err = nvme_zns_mgmt_recv(fd, cfg.namespace_id, cfg.zslba, cfg.zra,
-		cfg.zrasf, cfg.zrass, cfg.data_len, data);
+		cfg.zrasf, cfg.partial, cfg.data_len, data);
 	if (!err)
 		printf("zone-mgmt-recv: Success, action:%d zone:%"PRIx64" nsid:%d\n",
 			cfg.zra, (uint64_t)cfg.zslba, cfg.namespace_id);
