@@ -5,7 +5,7 @@
 <head>
 <meta http-equiv="Content-Type" content="application/xhtml+xml; charset=UTF-8" />
 <meta name="generator" content="AsciiDoc 8.6.10" />
-<title>nvme-wdc-vs-smart-add-log(1)</title>
+<title>nvme-copy(1)</title>
 <style type="text/css">
 /* Shared CSS for AsciiDoc xhtml11 and html5 backends */
 
@@ -735,12 +735,12 @@ asciidoc.install();
 <body class="manpage">
 <div id="header">
 <h1>
-nvme-wdc-vs-smart-add-log(1) Manual Page
+nvme-copy(1) Manual Page
 </h1>
 <h2>NAME</h2>
 <div class="sectionbody">
-<p>nvme-wdc-vs-smart-add-log -
-   Send NVMe WDC vs-smart-add-log Vendor Unique Command, return result
+<p>nvme-copy -
+   Send an NVMe Simple Copy command, provide results
 </p>
 </div>
 </div>
@@ -749,8 +749,22 @@ nvme-wdc-vs-smart-add-log(1) Manual Page
 <h2 id="_synopsis">SYNOPSIS</h2>
 <div class="sectionbody">
 <div class="verseblock">
-<pre class="content"><em>nvme wdc vs-smart-add-log</em> &lt;device&gt; [--interval=&lt;NUM&gt;, -i &lt;NUM&gt;] [--output-format=&lt;normal|json&gt; -o &lt;normal|json&gt;]
-    [--log-page-version=&lt;NUM&gt;, -l &lt;NUM&gt;] [--log-page-mask=&lt;LIST&gt;, -p &lt;LIST&gt;]</pre>
+<pre class="content"><em>nvme-copy</em> &lt;device&gt; [--sdlba=&lt;sdlba&gt; | -d &lt;sdlba&gt;]
+                        [--blocks=&lt;nlb-list,&gt; | -b &lt;nlb-list,&gt;]
+                        [--slbs=&lt;slbas,&gt; | -s &lt;slbas,&gt;]
+                        [--limited-retry | -l]
+                        [--force-unit-access | -f]
+                        [--prinfow=&lt;prinfow&gt; | -p &lt;prinfow&gt;]
+                        [--prinfor=&lt;prinfor&gt; | -P &lt;prinfor&gt;]
+                        [--ref-tag=&lt;reftag&gt; | -r &lt;reftag&gt;]
+                        [--expected-ref-tags=&lt;reftag,&gt; | -R &lt;reftag,&gt;]
+                        [--app-tag=&lt;apptag&gt; | -a &lt;apptag&gt;]
+                        [--expected-app-tags=&lt;apptag,&gt; | -A &lt;apptag,&gt;]
+                        [--app-mask=&lt;appmask&gt; | -m &lt;appmask&gt;]
+                        [--expected-app-masks=&lt;appmask,&gt; | -M &lt;appmask,&gt;]
+                        [--dir-type=&lt;type&gt; | -T &lt;type&gt;]
+                        [--dir-spec=&lt;spec&gt; | -S &lt;spec&gt;]
+                        [--format=&lt;entry-format&gt; | -F &lt;entry-format&gt;]</pre>
 <div class="attribution">
 </div></div>
 </div>
@@ -758,13 +772,8 @@ nvme-wdc-vs-smart-add-log(1) Manual Page
 <div class="sect1">
 <h2 id="_description">DESCRIPTION</h2>
 <div class="sectionbody">
-<div class="paragraph"><p>For the NVMe device given, send a Vendor Unique WDC vs-smart-add-log command and
-provide the additional smart log.</p></div>
-<div class="paragraph"><p>The &lt;device&gt; parameter is mandatory and may be either the NVMe character
-device (ex: /dev/nvme0) or block device (ex: /dev/nvme0n1).</p></div>
-<div class="paragraph"><p>This will only work on WDC devices supporting this feature.
-Results for any other device are undefined.</p></div>
-<div class="paragraph"><p>On success it returns 0, error code otherwise.</p></div>
+<div class="paragraph"><p>The Copy command is used by the host to copy data from one or more source
+logical block ranges to a single consecutive destination logical block range.</p></div>
 </div>
 </div>
 <div class="sect1">
@@ -772,137 +781,200 @@ Results for any other device are undefined.</p></div>
 <div class="sectionbody">
 <div class="dlist"><dl>
 <dt class="hdlist1">
--i &lt;NUM&gt;
+--sdlba=&lt;sdlba&gt;
 </dt>
 <dt class="hdlist1">
---interval=&lt;NUM&gt;
+-d &lt;sdlba&gt;
 </dt>
 <dd>
 <p>
-        Return the statistics from specific interval, defaults to 14.  This parameter is only valid for the 0xC1 log page
-        and ignored for all other log pages.
+        64-bit addr of first destination logical block
 </p>
 </dd>
 <dt class="hdlist1">
--o &lt;format&gt;
+--blocks=&lt;nlb-list,&gt;
 </dt>
 <dt class="hdlist1">
---output-format=&lt;format&gt;
+-b &lt;nlb-list,&gt;
 </dt>
 <dd>
 <p>
-        Set the reporting format to <em>normal</em>, or
-        <em>json</em>. Only one output format can be used at a time.
-        Default is normal.
+        Comma separated list of the number of blocks in each range
 </p>
 </dd>
 <dt class="hdlist1">
--l &lt;NUM&gt;
+--slbs=&lt;slbas,&gt;
 </dt>
 <dt class="hdlist1">
---log-page-version=&lt;NUM&gt;
+-s &lt;slbas,&gt;
 </dt>
 <dd>
 <p>
-    Log Page Version: 0 = vendor, 1 = WDC.  This parameter is only valid for the 0xC0 log page and ignored for all
-    other log pages.
+        Comma separated list of the starting blocks in each range
 </p>
 </dd>
 <dt class="hdlist1">
--p &lt;LIST&gt;
+--limited-retry
 </dt>
 <dt class="hdlist1">
---log-page-mask=&lt;LIST&gt;
+-l
 </dt>
 <dd>
 <p>
-    Supply a comma separated list of desired log pages to display.
-    The possible values are 0xc0, 0xc1, 0xca, 0xd0.
-    Note: Not all pages are supported on all drives.
-    The default is to display all supported log pages.
+        Sets the limited retry flag.
+</p>
+</dd>
+<dt class="hdlist1">
+--force-unit-access
+</dt>
+<dt class="hdlist1">
+-f
+</dt>
+<dd>
+<p>
+        Set the force-unit access flag.
+</p>
+</dd>
+<dt class="hdlist1">
+--prinfow=&lt;prinfow&gt;
+</dt>
+<dt class="hdlist1">
+-p &lt;prinfow&gt;
+</dt>
+<dd>
+<p>
+        Protection Information field write definition.
+</p>
+</dd>
+<dt class="hdlist1">
+--prinfor=&lt;prinfor&gt;
+</dt>
+<dt class="hdlist1">
+-P &lt;prinfor&gt;
+</dt>
+<dd>
+<p>
+        Protection Information field read definition.
+</p>
+</dd>
+<dt class="hdlist1">
+--ref-tag=&lt;reftag&gt;
+</dt>
+<dt class="hdlist1">
+-r &lt;reftag&gt;
+</dt>
+<dd>
+<p>
+        initial lba reference tag.
+</p>
+</dd>
+<dt class="hdlist1">
+--expected-ref-tags=&lt;reftag,&gt;
+</dt>
+<dt class="hdlist1">
+-R &lt;reftag,&gt;
+</dt>
+<dd>
+<p>
+        expected lba reference tags (comma-separated list).
+</p>
+</dd>
+<dt class="hdlist1">
+--app-tag=&lt;apptag&gt;
+</dt>
+<dt class="hdlist1">
+-a &lt;apptag&gt;
+</dt>
+<dd>
+<p>
+        lba app tag
+</p>
+</dd>
+<dt class="hdlist1">
+--expected-app-tags=&lt;apptag,&gt;
+</dt>
+<dt class="hdlist1">
+-A &lt;apptag,&gt;
+</dt>
+<dd>
+<p>
+        expected lba app tags (comma-separated list)
+</p>
+</dd>
+<dt class="hdlist1">
+--app-mask=&lt;appmask&gt;
+</dt>
+<dt class="hdlist1">
+-m &lt;appmask&gt;
+</dt>
+<dd>
+<p>
+        lba tag mask
+</p>
+</dd>
+<dt class="hdlist1">
+--expected-app-masks=&lt;appmask,&gt;
+</dt>
+<dt class="hdlist1">
+-M &lt;appmask,&gt;
+</dt>
+<dd>
+<p>
+        expected lba tag masks (comma-separated list)
+</p>
+</dd>
+<dt class="hdlist1">
+--dir-type=&lt;type&gt;
+</dt>
+<dt class="hdlist1">
+-T &lt;type&gt;
+</dt>
+<dd>
+<p>
+        Optional directive type. The nvme-cli only enforces the value
+        be in the defined range for the directive type, though the NVMe
+        specifcation (1.3a) defines only one directive, 01h, for write
+        stream idenfiers.
+</p>
+</dd>
+<dt class="hdlist1">
+--dir-spec=&lt;spec&gt;
+</dt>
+<dt class="hdlist1">
+-S &lt;spec&gt;
+</dt>
+<dd>
+<p>
+        Optional field for directive specifics. When used with
+        write streams, this value is defined to be the write stream
+        identifier. The nvme-cli will not validate the stream requested
+        is within the controller&#8217;s capabilities.
+</p>
+</dd>
+<dt class="hdlist1">
+--format=&lt;entry-format&gt;
+</dt>
+<dt class="hdlist1">
+-F &lt;entry-format&gt;
+</dt>
+<dd>
+<p>
+        source range entry format
 </p>
 </dd>
 </dl></div>
-<div class="paragraph"><p>Valid Interval values and description :-</p></div>
-<div class="tableblock">
-<table rules="all"
-style="margin-left:auto; margin-right:auto;"
-width="100%"
-frame="hsides"
-cellspacing="0" cellpadding="4">
-<col width="50%" />
-<col width="50%" />
-<thead>
-<tr>
-<th align="left" valign="top">Value </th>
-<th align="left" valign="top">Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td align="left" valign="top"><p class="table"><strong>1</strong></p></td>
-<td align="left" valign="top"><p class="table">Most recent five (5) minute accumulated set.</p></td>
-</tr>
-<tr>
-<td align="left" valign="top"><p class="table"><strong>2-12</strong></p></td>
-<td align="left" valign="top"><p class="table">Previous five (5) minute accumulated sets.</p></td>
-</tr>
-<tr>
-<td align="left" valign="top"><p class="table"><strong>13</strong></p></td>
-<td align="left" valign="top"><p class="table">The accumulated total of sets 1 through 12 that contain the previous hour of
-accumulated statistics.</p></td>
-</tr>
-<tr>
-<td align="left" valign="top"><p class="table"><strong>14</strong></p></td>
-<td align="left" valign="top"><p class="table">The statistical set accumulated since power-up.</p></td>
-</tr>
-<tr>
-<td align="left" valign="top"><p class="table"><strong>15</strong></p></td>
-<td align="left" valign="top"><p class="table">The statistical set accumulated during the entire lifetime of the device.</p></td>
-</tr>
-</tbody>
-</table>
-</div>
 </div>
 </div>
 <div class="sect1">
 <h2 id="_examples">EXAMPLES</h2>
 <div class="sectionbody">
-<div class="ulist"><ul>
-<li>
-<p>
-Has the program issue WDC vs-smart-add-log Vendor Unique Command with default interval (14) :
-</p>
-<div class="listingblock">
-<div class="content">
-<pre><code># nvme wdc vs-smart-add-log /dev/nvme0</code></pre>
-</div></div>
-</li>
-<li>
-<p>
-Has the program issue WDC vs-smart-add-log Vendor Unique Command for just the 0xCA log page :
-</p>
-<div class="listingblock">
-<div class="content">
-<pre><code># nvme wdc vs-smart-add-log /dev/nvme0 -p 0xCA</code></pre>
-</div></div>
-</li>
-<li>
-<p>
-Has the program issue WDC vs-smart-add-log Vendor Unique Command for 0xC0 and 0xCA log pages :
-</p>
-<div class="listingblock">
-<div class="content">
-<pre><code># nvme wdc vs-smart-add-log /dev/nvme0 -p 0xCA,0xC0</code></pre>
-</div></div>
-</li>
-</ul></div>
+<div class="paragraph"><p>No examples yet.</p></div>
 </div>
 </div>
 <div class="sect1">
 <h2 id="_nvme">NVME</h2>
 <div class="sectionbody">
-<div class="paragraph"><p>Part of the nvme-user suite.</p></div>
+<div class="paragraph"><p>Part of the nvme-user suite</p></div>
 </div>
 </div>
 </div>
@@ -910,7 +982,7 @@ Has the program issue WDC vs-smart-add-log Vendor Unique Command for 0xC0 and 0x
 <div id="footer">
 <div id="footer-text">
 Last updated
- 2020-08-05 14:36:59 CDT
+ 2020-05-06 10:35:20 CEST
 </div>
 </div>
 </body>
