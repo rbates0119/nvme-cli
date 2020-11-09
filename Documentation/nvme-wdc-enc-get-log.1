@@ -1,5 +1,5 @@
 '\" t
-.\"     Title: nvme-effects-log
+.\"     Title: nvme-wdc-enc-get-log
 .\"    Author: [FIXME: author] [see http://www.docbook.org/tdg5/en/html/author]
 .\" Generator: DocBook XSL Stylesheets vsnapshot <http://docbook.sf.net/>
 .\"      Date: 10/20/2020
@@ -7,7 +7,7 @@
 .\"    Source: NVMe
 .\"  Language: English
 .\"
-.TH "NVME\-EFFECTS\-LOG" "1" "10/20/2020" "NVMe" "NVMe Manual"
+.TH "NVME\-WDC\-ENC\-GET\" "1" "10/20/2020" "NVMe" "NVMe Manual"
 .\" -----------------------------------------------------------------
 .\" * Define some portability stuff
 .\" -----------------------------------------------------------------
@@ -28,36 +28,33 @@
 .\" * MAIN CONTENT STARTS HERE *
 .\" -----------------------------------------------------------------
 .SH "NAME"
-nvme-effects-log \- Send NVMe Command Effects log page request, returns result and log
+nvme-wdc-enc-get-log \- Send NVMe WDC enc\-get\-log Vendor Unique Command, return result\&.
 .SH "SYNOPSIS"
 .sp
 .nf
-\fInvme effects\-log\fR <device> [\-\-output\-format=<fmt> | \-o <fmt>]
-                            [\-\-human\-readable | \-H]
-                            [\-\-raw\-binary | \-b]
+\fInvme wdc enc\-get\-log\fR <device> [\-\-log\-id=<NUM>, \-l <NUM>] [\-\-output\-file=<FILE>, \-o <FILE>] [\-\-transfer\-size=<SIZE>, \-s <SIZE>]
 .fi
 .SH "DESCRIPTION"
 .sp
-Retrieves the NVMe Command Effects log page from an NVMe device and provides the returned structure\&.
+For the NVMe device given, send a Vendor Unique WDC enc\-get\-log command and output the Enclosure logs\&.
 .sp
-The <device> parameter is mandatory and should be the NVMe character device (ex: /dev/nvme0)\&.
+The <device> parameter is mandatory and may be either the NVMe character device (ex: /dev/nvme0)\&.
 .sp
-On success, the returned command effects log structure will be printed for each command that is supported\&.
+The \-\-log\-id=<NUM>, \-l <NUM> parameter is mandatory and may be either 0xd1, 0xd2, 0xd3, 0xd4, 0xe2 and 0xe4\&.
+.sp
+This will only work on WDC devices supporting this feature\&. Results for any other device are undefined\&.
+.sp
+On success it returns the enclosure log data, error code otherwise\&.
 .SH "OPTIONS"
 .PP
-\-o <format>, \-\-output\-format=<format>
+\-o <FILE>, \-\-output\-file=<FILE>
 .RS 4
-This option will set the reporting format to normal, json, or binary\&. Only one output format can be used at a time\&.
+Output file pathname
 .RE
 .PP
-\-H, \-\-human\-readable
+\-s <SIZE>, \-\-transfer\-size=<NUM>
 .RS 4
-This option will parse and format many of the bit fields into a human\-readable format\&.
-.RE
-.PP
-\-b, \-\-raw\-binary
-.RS 4
-This option will print the raw buffer to stdout\&. Structure is not parsed by program\&. This overrides the human\-readable option\&.
+Data retrieval transfer size, maximum transfer size should be 0x2000 (decimal 8192)
 .RE
 .SH "EXAMPLES"
 .sp
@@ -69,13 +66,13 @@ This option will print the raw buffer to stdout\&. Structure is not parsed by pr
 .sp -1
 .IP \(bu 2.3
 .\}
-Print the effects log page in a human readable format:
+Gets the enclosure log from the device based on the log id(0xd1) with transfer size(0x2000) and saves to defined file in current directory:
 .sp
 .if n \{\
 .RS 4
 .\}
 .nf
-# nvme effects\-log /dev/nvme0
+# nvme wdc enc\-get\-log /dev/nvme0 \-l 0xd1 \-o d1_log\&.bin \-s 0x2000
 .fi
 .if n \{\
 .RE
@@ -90,14 +87,13 @@ Print the effects log page in a human readable format:
 .sp -1
 .IP \(bu 2.3
 .\}
-Have the program return the raw structure in binary:
+Gets the enclosure log from the device based on the log id(0xd2) with default transfer size(0x1000) and saves to defined file in current directory:
 .sp
 .if n \{\
 .RS 4
 .\}
 .nf
-# nvme effects\-log /dev/nvme0 \-\-raw\-binary > effects_log\&.raw
-# nvme effects\-log /dev/nvme0 \-b > effects_log\&.raw
+# nvme wdc enc\-get\-log /dev/nvme0 \-l 0xd2 \-o d1_log\&.bin
 .fi
 .if n \{\
 .RE
@@ -105,4 +101,4 @@ Have the program return the raw structure in binary:
 .RE
 .SH "NVME"
 .sp
-Part of the nvme\-user suite
+Part of the nvme\-user suite\&.
