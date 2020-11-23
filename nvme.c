@@ -1136,13 +1136,14 @@ static int detach_ns(int argc, char **argv, struct command *cmd, struct plugin *
 	return nvme_attach_ns(argc, argv, 0, desc, cmd);
 }
 
-int zbd_create_zone_data(__u64	nsze, __u64	ncap;)
+int create_zns_namespace_data(__u64	ncap)
 {
-	struct nvme_zone_report_header	hdr;
-	struct nvme_zone_log zone_log;
+	struct nvme_zone_report hdr;
+	struct nvme_zns_desc zone_log;
 	unsigned int i;
 	int fd;
 	char file_name[20];
+	__u16 nr_zones = ncap / 0x80000;
 	sprintf(file_name, "namespace_%d.bin",nr_zones);
 
 	fd = open(file_name, O_CREAT | O_WRONLY, S_IWUSR);
@@ -1155,11 +1156,11 @@ int zbd_create_zone_data(__u64	nsze, __u64	ncap;)
 		close (fd);
 		return -1;
 	}
-	zone_log.capacity = 0x43500;
+	zone_log.zcap = 0x43500;
 	zone_log.wp = 0x00000;
-	zone_log.slba = 0x00000;
-	zone_log.zone_type = 2;
-	zone_log.zone_state = NVME_ZONE_EMPTY;
+	zone_log.zslba = 0x00000;
+	zone_log.zt = 2;
+	zone_log.zs = NVME_ZNS_ZS_EMPTY;
 
 	for (i = 0; i < nr_zones; i++) {
 
@@ -1168,8 +1169,8 @@ int zbd_create_zone_data(__u64	nsze, __u64	ncap;)
 			return -1;
 		}
 
-		zone_log.slba += 0x80000;
-		zone_log.wp = zone_log.slba;
+		zone_log.zslba += 0x80000;
+		zone_log.wp = zone_log.zslba;
 
 	}
 
@@ -1286,7 +1287,7 @@ static int create_ns(int argc, char **argv, struct command *cmd, struct plugin *
 			    cfg.anagrpid, cfg.nvmsetid, cfg.csi, cfg.timeout,
 			    &nsid);
 	else
-		err = zbd_create_zone_data(cfg.nsze, cfg.ncap);
+		err = create_zns_namespace_data(cfg.ncap);
 	if (!err)
 		printf("%s: Success, created nsid:%d\n", cmd->name, nsid);
 	else if (err > 0)
