@@ -1136,6 +1136,47 @@ static int detach_ns(int argc, char **argv, struct command *cmd, struct plugin *
 	return nvme_attach_ns(argc, argv, 0, desc, cmd);
 }
 
+int zbd_create_zone_data(__u64	nsze, __u64	ncap;)
+{
+	struct nvme_zone_report_header	hdr;
+	struct nvme_zone_log zone_log;
+	unsigned int i;
+	int fd;
+	char file_name[20];
+	sprintf(file_name, "namespace_%d.bin",nr_zones);
+
+	fd = open(file_name, O_CREAT | O_WRONLY, S_IWUSR);
+	if (fd < 0) {
+		return -errno;
+	}
+
+	hdr.nr_zones = nr_zones;
+	if (write(fd, (void*)&hdr, sizeof(hdr)) < sizeof(zone_log)) {
+		close (fd);
+		return -1;
+	}
+	zone_log.capacity = 0x43500;
+	zone_log.wp = 0x00000;
+	zone_log.slba = 0x00000;
+	zone_log.zone_type = 2;
+	zone_log.zone_state = NVME_ZONE_EMPTY;
+
+	for (i = 0; i < nr_zones; i++) {
+
+		if (write(fd, (void*)&zone_log, sizeof(zone_log)) < sizeof(zone_log)) {
+			close (fd);
+			return -1;
+		}
+
+		zone_log.slba += 0x80000;
+		zone_log.wp = zone_log.slba;
+
+	}
+
+	return nr_zones;
+}
+
+
 static int create_ns(int argc, char **argv, struct command *cmd, struct plugin *plugin)
 {
 	const char *desc = "Send a namespace management command "\
@@ -1240,9 +1281,12 @@ static int create_ns(int argc, char **argv, struct command *cmd, struct plugin *
 		goto close_fd;
 	}
 
+	if (cfg.csi == 0)
 	err = nvme_ns_create(fd, cfg.nsze, cfg.ncap, cfg.flbas, cfg.dps, cfg.nmic,
 			    cfg.anagrpid, cfg.nvmsetid, cfg.csi, cfg.timeout,
 			    &nsid);
+	else
+		err = zbd_create_zone_data(cfg.nsze, cfg.ncap);
 	if (!err)
 		printf("%s: Success, created nsid:%d\n", cmd->name, nsid);
 	else if (err > 0)
