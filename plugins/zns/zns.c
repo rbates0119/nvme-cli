@@ -146,8 +146,10 @@ static int zns_mgmt_send(int argc, char **argv, struct command *cmd, struct plug
 	const char *zslba = "starting LBA of the zone for this command";
 	const char *select_all = "send command to all zones";
 
-	int err, fd;
+	int err, fd, fd1, i, count;
 	char *command;
+	char file_name[20];
+	off_t offset;
 
 	struct config {
 		__u64	zslba;
@@ -157,6 +159,9 @@ static int zns_mgmt_send(int argc, char **argv, struct command *cmd, struct plug
 
 	struct config cfg = {
 	};
+
+	struct nvme_zone_report hdr;
+	struct nvme_zns_desc zone_log;
 
 	OPT_ARGS(opts) = {
 		OPT_UINT("namespace-id", 'n', &cfg.namespace_id,  namespace_id),
@@ -181,19 +186,64 @@ static int zns_mgmt_send(int argc, char **argv, struct command *cmd, struct plug
 		}
 	}
 
-	err = __zns_mgmt_send(fd, cfg.namespace_id, cfg.zslba,
-		cfg.select_all, zsa, 0, NULL);
-	if (!err)
-		printf("%s: Success, action:%d zone:%"PRIx64" nsid:%d\n", command,
-			zsa, (uint64_t)cfg.zslba, cfg.namespace_id);
-	else if (err > 0)
-		nvme_show_status(err);
-	else
-		perror(desc);
+	sprintf(file_name, "%s.bin",strchr(argv[optind], 'n'));
+
+	//((cfg.zslba ? (cfg.zslba / 0x80000) : 0)
+//	offset = sizeof(struct nvme_zone_report) + ((cfg.zslba / 0x80000) * sizeof(struct nvme_zns_desc));
+	offset = sizeof(struct nvme_zone_report) + ((cfg.zslba ? (cfg.zslba / 0x80000) : 0) * sizeof(struct nvme_zns_desc));
+	printf("reset_zone: dev = %s, offset = %ld, action:%d zone:%"PRIx64", all = %d, nsid:%d\n", file_name,
+		offset, zsa, (uint64_t)cfg.zslba, cfg.select_all, cfg.namespace_id);
+
+	fd1 = open(file_name, O_RDWR, S_IRUSR | S_IWUSR);
+	if (fd1 > 0) {
+
+		err = read(fd1, (void*)&hdr, sizeof(struct nvme_zone_report));
+
+		if (cfg.select_all) {
+			count = hdr.nr_zones;
+			offset = sizeof(struct nvme_zone_report);
+		} else {
+			count = 1;
+		}
+//		printf("reset_zone: dev = %s, offset = %ld, action:%d zone:%"PRIx64" nsid:%d, count = %d\n", file_name,
+//			offset, zsa, (uint64_t)cfg.zslba, cfg.namespace_id, count);
+		for (i=0;i<count;i++) {
+			lseek(fd1, offset, SEEK_SET);
+
+			err = read(fd1, (void*)&zone_log, sizeof(zone_log));
+			if (err < sizeof(zone_log)) {
+				close(fd1);
+				return false;
+			}
+			lseek(fd1, offset, SEEK_SET);
+			zone_log.wp = zone_log.zslba;
+			zone_log.zs = NVME_ZNS_ZS_EMPTY << 4;
+//			printf("reset_zone: dev = %s, offset = 0x%lX, zone:%"PRIx64" nsid:%d\n", file_name,
+//				offset, (uint64_t)zone_log.zslba, cfg.namespace_id);
+
+			if (write(fd1, (void*)&zone_log, sizeof(zone_log)) < sizeof(zone_log)) {
+				close (fd1);
+				return false;
+			}
+			offset+= sizeof(struct nvme_zns_desc);
+		}
+		close (fd1);
+		return err;
+	} else {
+		err = __zns_mgmt_send(fd, cfg.namespace_id, cfg.zslba,
+			cfg.select_all, zsa, 0, NULL);
+		if (!err)
+			printf("%s: Success, action:%d zone:%"PRIx64" nsid:%d\n", command,
+				zsa, (uint64_t)cfg.zslba, cfg.namespace_id);
+		else if (err > 0)
+			nvme_show_status(err);
+		else
+			perror(desc);
+	}
 free:
-	free(command);
+			free(command);
 close_fd:
-	close(fd);
+			close(fd);
 	return err;
 }
 
@@ -554,10 +604,15 @@ static int report_zones(int argc, char **argv, struct command *cmd, struct plugi
 	const char *human_readable = "show report zones in readable format";
 
 	enum nvme_print_flags flags;
-	int fd, zdes = 0, err = -1;
+	int fd, fd1, zdes = 0, err = -1;
+	int i, count = 0;
 	__u32 report_size;
+	__u32 offset;
+
 	void *report;
+	void *report_start;
 	bool huge = false;
+	char file_name[20];
 
 	struct config {
 		char *output_format;
@@ -573,6 +628,7 @@ static int report_zones(int argc, char **argv, struct command *cmd, struct plugi
 	struct config cfg = {
 		.output_format = "normal",
 		.num_descs = -1,
+		.state = 0,
 	};
 
 	OPT_ARGS(opts) = {
@@ -613,6 +669,153 @@ static int report_zones(int argc, char **argv, struct command *cmd, struct plugi
 		}
 	}
 
+	sprintf(file_name, "%s.bin",strchr(argv[optind], 'n'));
+	fd1 = open(file_name, O_RDONLY, S_IRUSR);
+	if (fd1 > 0) {
+		struct nvme_zone_report r1;
+		err = read(fd1, &r1, sizeof(r1));
+		if (err > 0) {
+			if (cfg.num_descs == -1) {
+				if (cfg.state > 0) {
+					struct nvme_zns_desc zone_desc;
+					cfg.num_descs = 0;
+					for (i = 0; i < r1.nr_zones; i++) {
+						err = read(fd1, &zone_desc, sizeof(struct nvme_zns_desc));
+						if (err > 0) {
+							switch (zone_desc.zs >> 4) {
+							case NVME_ZNS_ZS_EMPTY:
+								if (cfg.state == NVME_ZNS_ZRAS_REPORT_EMPTY)
+									cfg.num_descs++;
+								break;
+							case NVME_ZNS_ZS_IMPL_OPEN:
+								if (cfg.state == NVME_ZNS_ZRAS_REPORT_IMPL_OPENED)
+									cfg.num_descs++;
+								break;
+							case NVME_ZNS_ZS_EXPL_OPEN:
+								if (cfg.state == NVME_ZNS_ZRAS_REPORT_EXPL_OPENED)
+									cfg.num_descs++;
+								break;
+							case NVME_ZNS_ZS_CLOSED:
+								if (cfg.state == NVME_ZNS_ZRAS_REPORT_CLOSED)
+									cfg.num_descs++;
+								break;
+							case NVME_ZNS_ZS_FULL:
+								if (cfg.state == NVME_ZNS_ZRAS_REPORT_FULL)
+									cfg.num_descs++;
+								break;
+							case NVME_ZNS_ZS_READ_ONLY:
+								if (cfg.state == NVME_ZNS_ZRAS_REPORT_READ_ONLY)
+									cfg.num_descs++;
+								break;
+							default:
+								break;
+							}
+						} else {
+							return err;
+						}
+					}
+					report_size = sizeof(struct nvme_zone_report) + cfg.num_descs *
+						sizeof(struct nvme_zns_desc);
+					report = nvme_alloc(report_size, &huge);
+					if (!report) {
+						perror("alloc");
+						err = -1;
+						close(fd1);
+						goto close_fd;
+					}
+					report_start = report;
+					lseek(fd1, 0, SEEK_SET);
+					err = read(fd1, report, sizeof(struct nvme_zone_report));
+					report+= sizeof(struct nvme_zone_report);
+					for (i = 0; i < r1.nr_zones; i++) {
+						err = read(fd1, report, sizeof(struct nvme_zns_desc));
+						if (err > 0) {
+							switch (((struct nvme_zns_desc*)report)->zs >> 4) {
+							case NVME_ZNS_ZS_EMPTY:
+								if (cfg.state == NVME_ZNS_ZRAS_REPORT_EMPTY) {
+									report+= sizeof(struct nvme_zns_desc);
+									count++;
+								}
+								break;
+							case NVME_ZNS_ZS_IMPL_OPEN:
+								if (cfg.state == NVME_ZNS_ZRAS_REPORT_IMPL_OPENED) {
+									report+= sizeof(struct nvme_zns_desc);
+								count++;
+							}
+								break;
+							case NVME_ZNS_ZS_EXPL_OPEN:
+								if (cfg.state == NVME_ZNS_ZRAS_REPORT_EXPL_OPENED) {
+									report+= sizeof(struct nvme_zns_desc);
+								count++;
+							}
+								break;
+							case NVME_ZNS_ZS_CLOSED:
+								if (cfg.state == NVME_ZNS_ZRAS_REPORT_CLOSED) {
+									report+= sizeof(struct nvme_zns_desc);
+								count++;
+							}
+								break;
+							case NVME_ZNS_ZS_FULL:
+								if (cfg.state == NVME_ZNS_ZRAS_REPORT_FULL) {
+									report+= sizeof(struct nvme_zns_desc);
+								count++;
+							}
+								break;
+							case NVME_ZNS_ZS_READ_ONLY:
+								if (cfg.state == NVME_ZNS_ZRAS_REPORT_READ_ONLY) {
+									report+= sizeof(struct nvme_zns_desc);
+								count++;
+							}
+								break;
+							default:
+								break;
+							}
+						} else {
+							return err;
+						}
+					}
+					fprintf(stderr, "report_zones: %s, zone count = %d\n", file_name, count);
+					if (err > 0) {
+						report = report_start;
+						nvme_show_zns_report_zones(report, cfg.num_descs, zdes,
+								report_size, flags);
+					}
+
+				} else {
+					cfg.num_descs = le64_to_cpu(r1.nr_zones);
+					if (cfg.zslba > 0) {
+						offset = sizeof(struct nvme_zone_report) + ((cfg.zslba ? (cfg.zslba / 0x80000) : 0) *
+								sizeof(struct nvme_zns_desc));
+						lseek(fd1, offset, SEEK_SET);
+					}
+				}
+			} else {
+				lseek(fd1, 0, SEEK_SET);
+			}
+			if (cfg.state == 0) {
+
+				fprintf(stderr, "report_zones: %s, nr_zones = %d\n", file_name, cfg.num_descs);
+				report_size = sizeof(struct nvme_zone_report) + (cfg.num_descs *
+					sizeof(struct nvme_zns_desc));
+				report = nvme_alloc(report_size, &huge);
+				if (!report) {
+					perror("alloc");
+					err = -1;
+					close(fd1);
+					goto close_fd;
+				}
+
+				err = read(fd1, report, report_size);
+				if (err > 0)
+					nvme_show_zns_report_zones(report, cfg.num_descs, zdes,
+							report_size, flags);
+			}
+		}
+		close(fd1);
+		goto close_fd;
+	}
+
+
 	if (cfg.num_descs == -1) {
 		struct nvme_zone_report r;
 
@@ -634,7 +837,6 @@ static int report_zones(int argc, char **argv, struct command *cmd, struct plugi
 		err = -1;
 		goto close_fd;
 	}
-
 	err = nvme_zns_report_zones(fd, cfg.namespace_id, cfg.zslba,
 		cfg.extended, cfg.state, cfg.partial, report_size, report);
 	if (!err)

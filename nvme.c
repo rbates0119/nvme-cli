@@ -1007,21 +1007,26 @@ static int delete_ns(int argc, char **argv, struct command *cmd, struct plugin *
 		"the namespace is not already inactive, once deleted.";
 	const char *namespace_id = "namespace to delete";
 	const char *timeout = "timeout value, in milliseconds";
-	int err, fd;
+	const char *pass = "let delete pass through";
+	int err, fd, fd1;
+	char file_name[20];
 
 	struct config {
 		__u32	namespace_id;
 		__u32	timeout;
+		__u32	pass;
 	};
 
 	struct config cfg = {
 		.namespace_id	= 0,
 		.timeout	= NVME_IOCTL_TIMEOUT,
+		.pass       = 0,
 	};
 
 	OPT_ARGS(opts) = {
 		OPT_UINT("namespace-id", 'n', &cfg.namespace_id, namespace_id),
 		OPT_UINT("timeout",      't', &cfg.timeout,      timeout),
+		OPT_UINT("pass",		't', &cfg.pass,      pass),
 		OPT_END()
 	};
 
@@ -1037,14 +1042,32 @@ static int delete_ns(int argc, char **argv, struct command *cmd, struct plugin *
 		}
 	}
 
-	err = nvme_ns_delete(fd, cfg.namespace_id, cfg.timeout);
-	if (!err)
-		printf("%s: Success, deleted nsid:%d\n", cmd->name,
-								cfg.namespace_id);
-	else if (err > 0)
-		nvme_show_status(err);
-	else
-		perror("delete namespace");
+	if (cfg.pass == 0) {
+		sprintf(file_name, "%sn1.bin",strchr(argv[optind], 'n'));
+		fd1 = open(file_name, O_RDONLY, S_IRUSR);
+		if (fd1 > 0) {
+			close(fd1);
+			if (remove(file_name) != 0)
+				printf("Delete of %s failed\n", file_name);
+		}
+		sprintf(file_name, "%sn2.bin",strchr(argv[optind], 'n'));
+		fd1 = open(file_name, O_RDONLY, S_IRUSR);
+		if (fd1 > 0) {
+			close(fd1);
+			if (remove(file_name) != 0)
+				printf("Delete of %s failed\n", file_name);
+		}
+		goto close_fd;
+	} else {
+		err = nvme_ns_delete(fd, cfg.namespace_id, cfg.timeout);
+		if (!err)
+			printf("%s: Success, deleted nsid:%d\n", cmd->name,
+									cfg.namespace_id);
+		else if (err > 0)
+			nvme_show_status(err);
+		else
+			perror("delete namespace");
+	}
 
 close_fd:
 	close(fd);
@@ -1054,8 +1077,10 @@ ret:
 
 static int nvme_attach_ns(int argc, char **argv, int attach, const char *desc, struct command *cmd)
 {
-	int err, num, i, fd, list[2048];
+	int err, num, i, fd, fd1, list[2048];
 	__u16 ctrlist[2048];
+	char file_name[20];
+	char new_file_name[40];
 
 	const char *namespace_id = "namespace to attach";
 	const char *cont = "optional comma-sep controller id list";
@@ -1085,6 +1110,16 @@ static int nvme_attach_ns(int argc, char **argv, int attach, const char *desc, s
 						cmd->name);
 		err = -EINVAL;
 		goto close_fd;
+	}
+
+	sprintf(file_name, "%s.bin",strrchr(argv[optind], 'n'));
+
+	fd1 = open(file_name, O_RDONLY, S_IRUSR);
+	if (fd1 > 0) {
+		close(fd1);
+		sprintf(new_file_name, "%sn%d.bin",strrchr(argv[optind], 'n'), cfg.namespace_id);
+		if (rename(file_name, new_file_name) == 0)
+			goto close_fd;
 	}
 
 	num = argconfig_parse_comma_sep_array(cfg.cntlist, list, 2047);
@@ -1136,15 +1171,18 @@ static int detach_ns(int argc, char **argv, struct command *cmd, struct plugin *
 	return nvme_attach_ns(argc, argv, 0, desc, cmd);
 }
 
-int create_zns_namespace_data(__u64	ncap)
+int create_zns_namespace_data(int argc, char **argv, __u64	ncap)
 {
 	struct nvme_zone_report hdr;
 	struct nvme_zns_desc zone_log;
 	unsigned int i;
 	int fd;
 	char file_name[20];
-	__u16 nr_zones = ncap / 0x80000;
-	sprintf(file_name, "namespace_%d.bin",nr_zones);
+	__u16 nr_zones = (__u16)(ncap / 0x80000);
+	sprintf(file_name, "%s.bin",strrchr(argv[optind], 'n'));
+
+	printf("create_zns_namespace_data: ncap = 0x%llX, nr_zones = %d, finename = %s\n", ncap, nr_zones, file_name);
+
 
 	fd = open(file_name, O_CREAT | O_WRONLY, S_IWUSR);
 	if (fd < 0) {
@@ -1160,7 +1198,7 @@ int create_zns_namespace_data(__u64	ncap)
 	zone_log.wp = 0x00000;
 	zone_log.zslba = 0x00000;
 	zone_log.zt = 2;
-	zone_log.zs = NVME_ZNS_ZS_EMPTY;
+	zone_log.zs = NVME_ZNS_ZS_EMPTY << 4;
 
 	for (i = 0; i < nr_zones; i++) {
 
@@ -1238,6 +1276,10 @@ static int create_ns(int argc, char **argv, struct command *cmd, struct plugin *
 	err = fd = parse_and_open(argc, argv, desc, opts);
 	if (fd < 0)
 		goto ret;
+	if ((cfg.csi == 2) || (cfg.nvmsetid == 2)) {
+		err = create_zns_namespace_data(argc, argv, cfg.ncap);
+		goto ret;
+	}
 
 	if (cfg.flbas != 0xff && cfg.bs != 0x00) {
 		fprintf(stderr,
@@ -1282,12 +1324,9 @@ static int create_ns(int argc, char **argv, struct command *cmd, struct plugin *
 		goto close_fd;
 	}
 
-	if (cfg.csi == 0)
 	err = nvme_ns_create(fd, cfg.nsze, cfg.ncap, cfg.flbas, cfg.dps, cfg.nmic,
 			    cfg.anagrpid, cfg.nvmsetid, cfg.csi, cfg.timeout,
 			    &nsid);
-	else
-		err = create_zns_namespace_data(cfg.ncap);
 	if (!err)
 		printf("%s: Success, created nsid:%d\n", cmd->name, nsid);
 	else if (err > 0)
